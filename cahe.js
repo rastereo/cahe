@@ -23,6 +23,7 @@ const fileName = getFileName(htmlFilePath);
 const newFileName = createNewFileName(fileName);
 
 function getDirPath(htmlPath) {
+  // eslint-disable-next-line no-plusplus
   for (let i = htmlPath.length - 1; i > 0; i--) {
     if (htmlPath[i] === "/" || htmlPath[i] === "\\") {
       return htmlPath.slice(0, i + 1);
@@ -31,6 +32,7 @@ function getDirPath(htmlPath) {
 }
 
 function getFileName(htmlPath) {
+  // eslint-disable-next-line no-plusplus
   for (let i = htmlPath.length - 1; i > 0; i--) {
     if (htmlPath[i] === "/" || htmlPath[i] === "\\") {
       return htmlPath.slice(i + 1);
@@ -39,7 +41,7 @@ function getFileName(htmlPath) {
 }
 
 function createNewFileName(fileName) {
-  return "${fileName.slice(0, -4)}min.html";
+  return `${fileName.slice(0, -4)}min.html`;
 }
 
 async function importHtmlAndConvertToString(filePath) {
