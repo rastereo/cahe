@@ -29,6 +29,7 @@
   },
   "dependencies": {
     "archiver": "^7.0.1",
+    "clipboardy": "^4.0.0",
     "html-crush": "^6.0.18"
   }
 }

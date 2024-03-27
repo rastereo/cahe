@@ -1,15 +1,16 @@
 #!/usr/bin/env node
-
-// eslint-disable-next-line import/no-unresolved
 import { crush } from "html-crush"; // https://codsen.com/os/html-crush
-// eslint-disable-next-line no-unused-vars
 import archiver from "archiver"; // https://www.archiverjs.com/
-import fs from "fs";
+import clipboard from "clipboardy"; // https://github.com/sindresorhus/clipboardy
+import fs, { createWriteStream } from "fs";
 import path from "path";
 
 class Cahe {
   constructor(htmlFilePath) {
     this.FilePath = htmlFilePath;
+    this.dirPath = path.dirname(this.FilePath);
+    this.fileName = path.basename(this.FilePath, ".html");
+    this.newFileName = `${this.fileName}.min.html`;
     this.htmlCrushConfig = {
       lineLengthLimit: 500,
       removeIndentations: true,
@@ -22,86 +23,90 @@ class Cahe {
     };
   }
 
-  // eslint-disable-next-line consistent-return
-  #getDirPath() {
-    // eslint-disable-next-line no-plusplus
-    for (let i = this.FilePath.length - 1; i > 0; i--) {
-      if (this.FilePath[i] === "/" || this.FilePath[i] === "\\") {
-        return this.FilePath.slice(0, i + 1);
-      }
+  #showConsoleMessage(message, isError = false) {
+    if (isError) {
+      console.error("\x1b[31m", message, message);
+    } else {
+      console.log("\x1b[32m", message);
     }
   }
 
-  // eslint-disable-next-line consistent-return
-  #getFileName() {
-    // eslint-disable-next-line no-plusplus
-    for (let i = this.FilePath.length - 1; i > 0; i--) {
-      if (this.FilePath[i] === "/" || this.FilePath[i] === "\\") {
-        return this.FilePath.slice(i + 1);
-      }
-    }
-  }
-
-  #createNewFileName() {
-    return `${this.fileName.slice(0, -4)}min.html`;
-  }
-
-  // eslint-disable-next-line consistent-return
   async #importHtmlAndConvertToString() {
     try {
       const data = await fs.promises.readFile(path.resolve(this.FilePath), {
         encoding: "utf-8",
       });
 
-      console.log("\x1b[32m", "Converted to a string successfully");
-
+      this.#showConsoleMessage("Converted to a string successfully");
       return data;
     } catch (error) {
-      console.error("\x1b[31m", "Error reading the HTML file", error);
+      this.#showConsoleMessage(error, true);
     }
   }
 
-  // eslint-disable-next-line consistent-return
-  async #minifyHtml(htmlString) {
+  async #minifyHtml() {
     try {
-      const { log, result } = crush(htmlString, this.htmlCrushConfig);
+      const { result } = crush(
+        await this.#importHtmlAndConvertToString(),
+        this.htmlCrushConfig,
+      );
 
-      console.log("\x1b[32m", "Html-crush minify successfully");
-      console.log("\x1b[0m", log);
+      this.#showConsoleMessage("Html-crush minify successfully");
 
       return result;
     } catch (error) {
-      console.error("\x1b[31m", "HTML-Crush server error", error);
+      this.#showConsoleMessage("HTML-Crush server error", true);
     }
   }
 
-  async writeNewHtmlFile() {
-    if (!this.FilePath) {
-      console.error("\x1b[31m", "Please provide a file path.");
-
-      return;
-    }
-
+  async archiveContent() {
     try {
-      this.dirPath = this.#getDirPath();
-      this.fileName = this.#getFileName();
-      this.newFileName = this.#createNewFileName();
+      const archive = archiver("zip", {
+        zlib: { level: 9 }, // Устанавливаем уровень сжатия
+      });
 
-      const outputPath = path.join(this.dirPath, this.newFileName);
+      // Файл вывода для архива
+      const outputArchiveFilePath = path.resolve(this.dirPath, `${this.fileName}.zip`);
+      const output = createWriteStream(outputArchiveFilePath);
 
-      const resultHtmlString = await this.#importHtmlAndConvertToString();
+      output.on("close", () => {
+        this.#showConsoleMessage(`Archive created. Total size: ${archive.pointer() / 1e6} MB.`);
+        this.#showConsoleMessage(`Archive path: ${outputArchiveFilePath}`);
 
-      const minifiedHtml = await this.#minifyHtml(resultHtmlString);
+        clipboard.writeSync(outputArchiveFilePath);
+        this.#showConsoleMessage("Archive path copied to clipboard.");
+      });
 
-      await fs.promises.writeFile(outputPath, minifiedHtml, "utf-8");
+      archive.on("error", (err) => {
+        throw err;
+      });
 
-      console.log("\x1b[32m", `File has been write to ${this.dirPath}`);
+      // Передаем данные архива в файл
+      archive.pipe(output);
+
+      // Добавляем минифицированный HTML-файл как строку
+      archive.append(await this.#minifyHtml(), { name: this.newFileName });
+
+      // Добавляем директорию 'image' в архив, предполагая, что она
+      // расположена в той же директории, что и HTML-файл
+      archive.directory(path.join(this.dirPath, "images"), "images");
+
+      // Завершаем архивацию - это означает, что мы закончили
+      // добавлять файлы, и заголовки архива теперь записаны
+      await archive.finalize();
     } catch (error) {
-      console.error("\x1b[31m", "Error writing the file:", error);
+      this.#showConsoleMessage(error, true);
     }
   }
 }
 
-const cahe = new Cahe(process.argv[2]);
+if (process.argv[2] && process.argv[2].slice(-4) === "html") {
+  const cahe = new Cahe(process.argv[2]);
 
-cahe.writeNewHtmlFile();
+  cahe.archiveContent();
+} else {
+  console.error(
+    "\x1b[31m",
+    "The path to the HTML file is either incorrect or missing. Please verify the path and ensure it is correctly specified.",
+  );
+}
