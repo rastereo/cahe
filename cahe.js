@@ -1,9 +1,10 @@
 #!/usr/bin/env node
+import fs, { createWriteStream } from "fs";
+import path from "path";
 import { crush } from "html-crush"; // https://codsen.com/os/html-crush
 import archiver from "archiver"; // https://www.archiverjs.com/
 import clipboard from "clipboardy"; // https://github.com/sindresorhus/clipboardy
-import fs, { createWriteStream } from "fs";
-import path from "path";
+import signale from "signale"; // https://github.com/klaudiosinani/signale
 
 class Cahe {
   constructor(htmlFilePath) {
@@ -23,90 +24,86 @@ class Cahe {
     };
   }
 
-  #showConsoleMessage(message, isError = false) {
-    if (isError) {
-      console.error("\x1b[31m", message, message);
-    } else {
-      console.log("\x1b[32m", message);
-    }
-  }
-
   async #importHtmlAndConvertToString() {
     try {
       const data = await fs.promises.readFile(path.resolve(this.FilePath), {
         encoding: "utf-8",
       });
 
-      this.#showConsoleMessage("Converted to a string successfully");
+      signale.success("Converte to a string");
+
       return data;
     } catch (error) {
-      this.#showConsoleMessage(error, true);
+      return signale.fatal(error.message);
     }
   }
 
   async #minifyHtml() {
     try {
-      const { result } = crush(
+      const { result, log } = crush(
         await this.#importHtmlAndConvertToString(),
         this.htmlCrushConfig,
       );
 
-      this.#showConsoleMessage("Html-crush minify successfully");
+      signale.success("Html-crush minify");
+
+      this.log = log;
 
       return result;
     } catch (error) {
-      this.#showConsoleMessage("HTML-Crush server error", true);
+      return signale.fatal(error.message);
     }
   }
 
   async archiveContent() {
     try {
       const archive = archiver("zip", {
-        zlib: { level: 9 }, // Устанавливаем уровень сжатия
+        zlib: { level: 9 },
       });
 
-      // Файл вывода для архива
-      const outputArchiveFilePath = path.resolve(this.dirPath, `${this.fileName}.zip`);
+      const outputArchiveFilePath = path.resolve(
+        this.dirPath,
+        `${this.fileName}.zip`,
+      );
       const output = createWriteStream(outputArchiveFilePath);
 
       output.on("close", () => {
-        this.#showConsoleMessage(`Archive created. Total size: ${archive.pointer() / 1e6} MB.`);
-        this.#showConsoleMessage(`Archive path: ${outputArchiveFilePath}`);
+        signale.success("Archive create");
+        signale.note(`HTML file size: ${this.log.bytesSaved / 1e3} KB.`);
+        signale.note(`Total size: ${archive.pointer() / 1e6} MB.`);
+        signale.note(`Path: ${outputArchiveFilePath}`);
 
         clipboard.writeSync(outputArchiveFilePath);
-        this.#showConsoleMessage("Archive path copied to clipboard.");
+        signale.info("Archive path copied to clipboard.");
       });
 
       archive.on("error", (err) => {
         throw err;
       });
 
-      // Передаем данные архива в файл
       archive.pipe(output);
 
-      // Добавляем минифицированный HTML-файл как строку
       archive.append(await this.#minifyHtml(), { name: this.newFileName });
 
-      // Добавляем директорию 'image' в архив, предполагая, что она
-      // расположена в той же директории, что и HTML-файл
       archive.directory(path.join(this.dirPath, "images"), "images");
 
-      // Завершаем архивацию - это означает, что мы закончили
-      // добавлять файлы, и заголовки архива теперь записаны
       await archive.finalize();
     } catch (error) {
-      this.#showConsoleMessage(error, true);
+      return signale.fatal(error.message);
     }
   }
 }
 
 if (process.argv[2] && process.argv[2].slice(-4) === "html") {
-  const cahe = new Cahe(process.argv[2]);
+  try {
+    const cahe = new Cahe(process.argv[2]);
 
-  cahe.archiveContent();
+    cahe.archiveContent();
+  } catch (error) {
+    signale.fatal(error);
+  }
 } else {
-  console.error(
-    "\x1b[31m",
-    "The path to the HTML file is either incorrect or missing. Please verify the path and ensure it is correctly specified.",
+  signale.fatal(
+    "The path to the HTML file is either incorrect or missing. Please verify the path and ensure it is correctly specified."
   );
 }
