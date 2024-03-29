@@ -10,6 +10,7 @@ class Cahe {
   constructor(htmlFilePath) {
     this.FilePath = htmlFilePath;
     this.dirPath = path.dirname(this.FilePath);
+    this.imagesDirPath = path.join(path.join(this.dirPath, "images"));
     this.fileName = path.basename(this.FilePath, ".html");
     this.newFileName = `${this.fileName}.min.html`;
     this.htmlCrushConfig = {
@@ -30,7 +31,7 @@ class Cahe {
         encoding: "utf-8",
       });
 
-      signale.success("Converte to a string");
+      signale.success("Convert to a string");
 
       return data;
     } catch (error) {
@@ -74,6 +75,7 @@ class Cahe {
         signale.note(`Path: ${outputArchiveFilePath}`);
 
         clipboard.writeSync(outputArchiveFilePath);
+
         signale.info("Archive path copied to clipboard.");
       });
 
@@ -85,25 +87,29 @@ class Cahe {
 
       archive.append(await this.#minifyHtml(), { name: this.newFileName });
 
-      archive.directory(path.join(this.dirPath, "images"), "images");
+      if (fs.existsSync(this.imagesDirPath)) {
+        archive.directory(path.join(this.dirPath, "images"), "images");
+      } else {
+        signale.warn("Images directory is missing");
+      }
 
-      await archive.finalize();
+      return await archive.finalize();
     } catch (error) {
       return signale.fatal(error.message);
     }
   }
 }
 
-if (process.argv[2] && process.argv[2].slice(-4) === "html") {
-  try {
-    const cahe = new Cahe(process.argv[2]);
+const htmlFilePath = process.argv[2];
 
-    cahe.archiveContent();
+if (htmlFilePath && htmlFilePath.slice(-4) === "html" && fs.existsSync(htmlFilePath)) {
+  try {
+    new Cahe(htmlFilePath).archiveContent();
   } catch (error) {
     signale.fatal(error);
   }
 } else {
   signale.fatal(
-    "The path to the HTML file is either incorrect or missing. Please verify the path and ensure it is correctly specified."
+    "The path to the HTML file is either incorrect or missing. Please verify the path and ensure it is correctly specified.",
   );
 }
