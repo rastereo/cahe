@@ -25,17 +25,29 @@ class Cahe {
     };
   }
 
+  #stopWithError(errorMessage) {
+    signale.fatal(errorMessage);
+
+    process.exit(1);
+  }
+
   async #importHtmlAndConvertToString() {
     try {
       const data = await fs.promises.readFile(path.resolve(this.FilePath), {
         encoding: "utf-8",
       });
 
+      if (!data) {
+        throw new Error(
+          "HTML file is empty. Please check the file and try again",
+        );
+      }
+
       signale.success("Convert to a string");
 
       return data;
     } catch (error) {
-      return signale.fatal(error.message);
+      return this.#stopWithError(error.message);
     }
   }
 
@@ -52,7 +64,7 @@ class Cahe {
 
       return result;
     } catch (error) {
-      return signale.fatal(error.message);
+      return this.#stopWithError(error.message);
     }
   }
 
@@ -69,9 +81,16 @@ class Cahe {
       const output = createWriteStream(outputArchiveFilePath);
 
       output.on("close", () => {
-        signale.success("Archive create");
-        signale.note(`HTML file size: ${this.log.bytesSaved / 1e3} KB.`);
-        signale.note(`Total size: ${archive.pointer() / 1e6} MB.`);
+        const htmlFileSize = this.log.bytesSaved / 1e3;
+
+        signale.success("Create archive");
+        signale.note(`HTML file size: ${htmlFileSize} KB`);
+
+        if (htmlFileSize >= 100) {
+          signale.warn("The size of the HTML file exceeds 100 KB");
+        }
+
+        signale.note(`Total size: ${archive.pointer() / 1e6} MB`);
         signale.note(`Path: ${outputArchiveFilePath}`);
 
         clipboard.writeSync(outputArchiveFilePath);
@@ -95,14 +114,18 @@ class Cahe {
 
       return await archive.finalize();
     } catch (error) {
-      return signale.fatal(error.message);
+      return this.#stopWithError(error.message);
     }
   }
 }
 
 const htmlFilePath = process.argv[2];
 
-if (htmlFilePath && htmlFilePath.slice(-4) === "html" && fs.existsSync(htmlFilePath)) {
+if (
+  htmlFilePath
+  && htmlFilePath.slice(-4) === "html"
+  && fs.existsSync(htmlFilePath)
+) {
   try {
     new Cahe(htmlFilePath).archiveContent();
   } catch (error) {
