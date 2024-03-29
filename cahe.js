@@ -7,22 +7,23 @@ import clipboard from "clipboardy"; // https://github.com/sindresorhus/clipboard
 import signale from "signale"; // https://github.com/klaudiosinani/signale
 
 class Cahe {
+  #htmlCrushConfig = {
+    lineLengthLimit: 500,
+    removeIndentations: true,
+    removeLineBreaks: true,
+    removeHTMLComments: true,
+    removeCSSComments: true,
+    reportProgressFunc: null,
+    reportProgressFuncFrom: 0,
+    reportProgressFuncTo: 100,
+  };
+
   constructor(htmlFilePath) {
     this.FilePath = htmlFilePath;
     this.dirPath = path.dirname(this.FilePath);
     this.imagesDirPath = path.join(path.join(this.dirPath, "images"));
     this.fileName = path.basename(this.FilePath, ".html");
     this.newFileName = `${this.fileName}.min.html`;
-    this.htmlCrushConfig = {
-      lineLengthLimit: 500,
-      removeIndentations: true,
-      removeLineBreaks: true,
-      removeHTMLComments: true,
-      removeCSSComments: true,
-      reportProgressFunc: null,
-      reportProgressFuncFrom: 0,
-      reportProgressFuncTo: 100,
-    };
   }
 
   #stopWithError(errorMessage) {
@@ -37,11 +38,7 @@ class Cahe {
         encoding: "utf-8",
       });
 
-      if (!data) {
-        throw new Error(
-          "HTML file is empty. Please check the file and try again",
-        );
-      }
+      if (!data) throw new Error("HTML file is empty. Please check the file and try again");
 
       signale.success("Convert to a string");
 
@@ -55,7 +52,7 @@ class Cahe {
     try {
       const { result, log } = crush(
         await this.#importHtmlAndConvertToString(),
-        this.htmlCrushConfig,
+        this.#htmlCrushConfig,
       );
 
       signale.success("Html-crush minify");
@@ -86,9 +83,7 @@ class Cahe {
         signale.success("Create archive");
         signale.note(`HTML file size: ${htmlFileSize} KB`);
 
-        if (htmlFileSize >= 100) {
-          signale.warn("The size of the HTML file exceeds 100 KB");
-        }
+        if (htmlFileSize >= 100) signale.warn("The size of the HTML file exceeds 100 KB");
 
         signale.note(`Total size: ${archive.pointer() / 1e6} MB`);
         signale.note(`Path: ${outputArchiveFilePath}`);
