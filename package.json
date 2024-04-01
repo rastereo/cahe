@@ -31,6 +31,7 @@
     "archiver": "^7.0.1",
     "clipboardy": "^4.0.0",
     "html-crush": "^6.0.18",
-    "signale": "^1.4.0"
+    "signale": "^1.4.0",
+    "tinify": "^1.7.1"
   }
 }

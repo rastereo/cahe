@@ -6,6 +6,7 @@ import { crush } from 'html-crush'; // https://codsen.com/os/html-crush
 import archiver from 'archiver'; // https://www.archiverjs.com/
 import clipboard from 'clipboardy'; // https://github.com/sindresorhus/clipboardy
 import signale from 'signale'; // https://github.com/klaudiosinani/signale
+import tinify from 'tinify'; // https://tinypng.com/developers/reference/nodejs
 
 class Cahe {
   #regexImageSrc = /src="(?!http:\/\/|https:\/\/)([^"]*)"/g;
@@ -22,6 +23,8 @@ class Cahe {
   };
 
   #imagesCount = 0;
+
+  #compressionPromises = [];
 
   constructor(htmlFilePath) {
     this.FilePath = htmlFilePath;
@@ -49,6 +52,10 @@ class Cahe {
 
     return srcList;
   }
+
+  // async #compressImage(imagePath) {
+  //   return await tinify.fromFile(imagePath).toBuffer();
+  // }
 
   async #importHtmlAndConvertToString() {
     try {
@@ -134,11 +141,31 @@ class Cahe {
       if (fs.existsSync(this.imagesDirPath)) {
         const imageSrcList = this.#getImagesSrc(htmlMinify);
 
-        imageSrcList.forEach((src) => {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const src of imageSrcList) {
           const imagePath = path.join(this.dirPath, src);
 
           if (fs.existsSync(imagePath)) {
-            // console.log(fs.statSync(imagePath).size / 1e3);
+            if (fs.statSync(imagePath).size / 1e3 >= 100) {
+              this.#compressionPromises.push(
+                tinify.fromFile(imagePath).toBuffer(imagePath)
+                  .then((image) => ({
+                    name: `images/${path.basename(imagePath)}`,
+                    image,
+                  })),
+              );
+              // try {
+              //   const compressedImage = await this.#compressImage(imagePath);
+
+              //   archive.append(
+              //     compressedImage,
+              //     { name: `images/${path.basename(imagePath)}` },
+              //   );
+              // } catch (error) {
+              //   signale.warn(error.message);
+              // }
+            }
+
             archive.file(
               imagePath,
               { name: `images/${path.basename(imagePath)}` },
@@ -148,10 +175,18 @@ class Cahe {
           } else {
             signale.warn(`Image file ${imagePath} is missing`);
           }
-        });
+        }
       } else {
         signale.warn('Images directory is missing');
       }
+
+      await Promise.all(this.#compressionPromises)
+        .then((items) => {
+          console.log(items);
+          items.forEach((image) => {
+            archive.append(image.image, { name: image.name });
+          });
+        });
 
       archive.on('error', (error) => this.#stopWithError(error.message));
 
@@ -166,6 +201,9 @@ const htmlFilePath = process.argv[2];
 
 if (htmlFilePath && htmlFilePath.slice(-4) === 'html' && fs.existsSync(htmlFilePath)) {
   performance.mark('A');
+
+  tinify.key = 'ZXFztlFFBFQszPBmBLF14LPKcrtqPXvL';
+  tinify.proxy = 'http://192.168.228.11:3128';
 
   new Cahe(htmlFilePath).archiveContent();
 } else {
