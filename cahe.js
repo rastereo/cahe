@@ -8,6 +8,8 @@ import clipboard from 'clipboardy'; // https://github.com/sindresorhus/clipboard
 import signale from 'signale'; // https://github.com/klaudiosinani/signale
 import tinify from 'tinify'; // https://tinypng.com/developers/reference/nodejs
 
+performance.mark('A');
+
 class Cahe {
   #regexImageSrc = /src="(?!http:\/\/|https:\/\/)([^"]*)"/g;
 
@@ -25,6 +27,8 @@ class Cahe {
   #imagesCount = 0;
 
   #compressionPromises = [];
+
+  #GATE_IMAGE_SIZE = 200;
 
   constructor(htmlFilePath) {
     this.FilePath = htmlFilePath;
@@ -52,10 +56,6 @@ class Cahe {
 
     return srcList;
   }
-
-  // async #compressImage(imagePath) {
-  //   return await tinify.fromFile(imagePath).toBuffer();
-  // }
 
   async #importHtmlAndConvertToString() {
     try {
@@ -146,30 +146,26 @@ class Cahe {
           const imagePath = path.join(this.dirPath, src);
 
           if (fs.existsSync(imagePath)) {
-            if (fs.statSync(imagePath).size / 1e3 >= 100) {
+            if (fs.statSync(imagePath).size / 1e3 >= this.#GATE_IMAGE_SIZE) {
               this.#compressionPromises.push(
-                tinify.fromFile(imagePath).toBuffer(imagePath)
-                  .then((image) => ({
-                    name: `images/${path.basename(imagePath)}`,
-                    image,
-                  })),
+                tinify.fromFile(imagePath)
+                  .toBuffer(imagePath)
+                  .then((image) => {
+                    signale.success(`Image ${path.basename(imagePath)} compressed`);
+
+                    return {
+                      name: `images/${path.basename(imagePath)}`,
+                      image,
+                    };
+                  })
+                  .catch((error) => signale.error(`Tinify ${error}`)),
               );
-              // try {
-              //   const compressedImage = await this.#compressImage(imagePath);
-
-              //   archive.append(
-              //     compressedImage,
-              //     { name: `images/${path.basename(imagePath)}` },
-              //   );
-              // } catch (error) {
-              //   signale.warn(error.message);
-              // }
+            } else {
+              archive.file(
+                imagePath,
+                { name: `images/${path.basename(imagePath)}` },
+              );
             }
-
-            archive.file(
-              imagePath,
-              { name: `images/${path.basename(imagePath)}` },
-            );
 
             this.#imagesCount += 1;
           } else {
@@ -182,7 +178,6 @@ class Cahe {
 
       await Promise.all(this.#compressionPromises)
         .then((items) => {
-          console.log(items);
           items.forEach((image) => {
             archive.append(image.image, { name: image.name });
           });
@@ -200,10 +195,9 @@ class Cahe {
 const htmlFilePath = process.argv[2];
 
 if (htmlFilePath && htmlFilePath.slice(-4) === 'html' && fs.existsSync(htmlFilePath)) {
-  performance.mark('A');
-
   tinify.key = 'ZXFztlFFBFQszPBmBLF14LPKcrtqPXvL';
-  tinify.proxy = 'http://192.168.228.11:3128';
+  // tinify.key = 'ZXFztlFFBFQszPBmBLF14LPKcrtqPXvLs';
+  // tinify.proxy = 'http://192.168.228.11:3128';
 
   new Cahe(htmlFilePath).archiveContent();
 } else {
