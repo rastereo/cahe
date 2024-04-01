@@ -21,6 +21,8 @@ class Cahe {
     reportProgressFuncTo: 100,
   };
 
+  #imagesCount = 0;
+
   constructor(htmlFilePath) {
     this.FilePath = htmlFilePath;
     this.dirPath = path.dirname(this.FilePath);
@@ -35,17 +37,17 @@ class Cahe {
     process.exit(1);
   }
 
-  #getImageSrc(htmlString) {
+  #getImagesSrc(htmlString) {
     let matches;
-    const srcArray = [];
+    const srcList = [];
 
     while ((matches = this.#regexImageSrc.exec(htmlString)) !== null) {
       const src = matches[1];
 
-      if (!srcArray.includes(src)) srcArray.push(src);
+      if (!srcList.includes(src)) srcList.push(src);
     }
 
-    console.log(srcArray);
+    return srcList;
   }
 
   async #importHtmlAndConvertToString() {
@@ -98,29 +100,27 @@ class Cahe {
 
       const htmlMinify = await this.#minifyHtml();
 
-      this.#getImageSrc(htmlMinify);
-
       output.on('finish', () => {
         const htmlFileSize = this.log.cleanedLength / 1e3;
 
         signale.success('Create archive');
-        signale.note(`HTML file size: ${htmlFileSize.toFixed(2)} KB ${this.log.percentageReducedOfOriginal}%`);
+        signale.info(`HTML file size: ${htmlFileSize.toFixed(2)} KB ${this.log.percentageReducedOfOriginal}%`);
 
         if (htmlFileSize >= 100) signale.warn('The size of the HTML file exceeds 100 KB');
 
-        signale.note(`Total size: ${(archive.pointer() / 1e6).toFixed(2)} MB`);
-        signale.note(`Path: ${outputArchiveFilePath}`);
+        signale.info(`Images: ${this.#imagesCount}`);
+        signale.info(`Total size: ${(archive.pointer() / 1e6).toFixed(2)} MB`);
+        signale.info(`Path: ${outputArchiveFilePath}`);
+        signale.info('Archive path copied to clipboard.');
 
         clipboard.writeSync(outputArchiveFilePath);
-
-        signale.info('Archive path copied to clipboard.');
 
         performance.mark('B');
         performance.measure('A to B', 'A', 'B');
 
         const [measure] = performance.getEntriesByName('A to B');
 
-        signale.info(`Time: ${(measure.duration / 1e3).toFixed(2)} s`);
+        signale.log(`Time: ${(measure.duration / 1e3).toFixed(2)} s`);
 
         performance.clearMarks();
         performance.clearMeasures();
@@ -132,7 +132,23 @@ class Cahe {
       archive.append(htmlMinify, { name: this.newFileName });
 
       if (fs.existsSync(this.imagesDirPath)) {
-        archive.directory(path.join(this.dirPath, 'images'), 'images');
+        const imageSrcList = this.#getImagesSrc(htmlMinify);
+
+        imageSrcList.forEach((src) => {
+          const imagePath = path.join(this.dirPath, src);
+
+          if (fs.existsSync(imagePath)) {
+            // console.log(fs.statSync(imagePath).size / 1e3);
+            archive.file(
+              imagePath,
+              { name: `images/${path.basename(imagePath)}` },
+            );
+
+            this.#imagesCount += 1;
+          } else {
+            signale.warn(`Image file ${imagePath} is missing`);
+          }
+        });
       } else {
         signale.warn('Images directory is missing');
       }
