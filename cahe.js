@@ -2,6 +2,7 @@
 import fs, { createWriteStream } from 'fs';
 import path from 'path';
 import { performance } from 'perf_hooks';
+import dotenv from 'dotenv';
 import { crush } from 'html-crush'; // https://codsen.com/os/html-crush
 import archiver from 'archiver'; // https://www.archiverjs.com/
 import clipboard from 'clipboardy'; // https://github.com/sindresorhus/clipboardy
@@ -28,7 +29,7 @@ class Cahe {
 
   #compressionPromises = [];
 
-  #GATE_IMAGE_SIZE = 200;
+  #GATE_IMAGE_SIZE = 300;
 
   constructor(htmlFilePath) {
     this.FilePath = htmlFilePath;
@@ -91,17 +92,27 @@ class Cahe {
     }
   }
 
+  async #compressImage(imagePath) {
+    this.#compressionPromises.push(
+      tinify.fromFile(imagePath)
+        .toBuffer(imagePath)
+        .then((image) => {
+          signale.success(`Image ${path.basename(imagePath)} compressed`);
+
+          return {
+            name: `images/${path.basename(imagePath)}`,
+            image,
+          };
+        })
+        .catch((error) => signale.error(`Tinify ${error}`)),
+    );
+  }
+
   async archiveContent() {
     try {
-      const archive = archiver(
-        'zip',
-        { zlib: { level: 9 } },
-      );
+      const archive = archiver('zip', { zlib: { level: 9 } });
 
-      const outputArchiveFilePath = path.resolve(
-        this.dirPath,
-        `${this.fileName}.zip`,
-      );
+      const outputArchiveFilePath = path.resolve(this.dirPath, `${this.fileName}.zip`);
 
       const output = createWriteStream(outputArchiveFilePath);
 
@@ -111,7 +122,7 @@ class Cahe {
         const htmlFileSize = this.log.cleanedLength / 1e3;
 
         signale.success('Create archive');
-        signale.info(`HTML file size: ${htmlFileSize.toFixed(2)} KB ${this.log.percentageReducedOfOriginal}%`);
+        signale.info(`HTML file size: ${htmlFileSize.toFixed(2)} KB -${this.log.percentageReducedOfOriginal}%`);
 
         if (htmlFileSize >= 100) signale.warn('The size of the HTML file exceeds 100 KB');
 
@@ -146,25 +157,10 @@ class Cahe {
           const imagePath = path.join(this.dirPath, src);
 
           if (fs.existsSync(imagePath)) {
-            if (fs.statSync(imagePath).size / 1e3 >= this.#GATE_IMAGE_SIZE) {
-              this.#compressionPromises.push(
-                tinify.fromFile(imagePath)
-                  .toBuffer(imagePath)
-                  .then((image) => {
-                    signale.success(`Image ${path.basename(imagePath)} compressed`);
-
-                    return {
-                      name: `images/${path.basename(imagePath)}`,
-                      image,
-                    };
-                  })
-                  .catch((error) => signale.error(`Tinify ${error}`)),
-              );
+            if (path.extname(imagePath) !== '.gif' && fs.statSync(imagePath).size / 1e3 >= this.#GATE_IMAGE_SIZE) {
+              this.#compressImage(imagePath);
             } else {
-              archive.file(
-                imagePath,
-                { name: `images/${path.basename(imagePath)}` },
-              );
+              archive.file(imagePath, { name: `images/${path.basename(imagePath)}` });
             }
 
             this.#imagesCount += 1;
@@ -176,12 +172,12 @@ class Cahe {
         signale.warn('Images directory is missing');
       }
 
-      await Promise.all(this.#compressionPromises)
-        .then((items) => {
-          items.forEach((image) => {
-            archive.append(image.image, { name: image.name });
+      if (this.#compressionPromises) {
+        await Promise.all(this.#compressionPromises)
+          .then((items) => {
+            items.forEach((image) => archive.append(image.image, { name: image.name }));
           });
-        });
+      }
 
       archive.on('error', (error) => this.#stopWithError(error.message));
 
@@ -194,10 +190,12 @@ class Cahe {
 
 const htmlFilePath = process.argv[2];
 
-if (htmlFilePath && htmlFilePath.slice(-4) === 'html' && fs.existsSync(htmlFilePath)) {
-  tinify.key = 'ZXFztlFFBFQszPBmBLF14LPKcrtqPXvL';
-  // tinify.key = 'ZXFztlFFBFQszPBmBLF14LPKcrtqPXvLs';
-  // tinify.proxy = 'http://192.168.228.11:3128';
+if (htmlFilePath && path.extname(htmlFilePath) === '.html' && fs.existsSync(htmlFilePath)) {
+  dotenv.config();
+
+  tinify.key = process.env.TINIFY_KEY;
+
+  if (process.env.PROXY) tinify.proxy = process.env.PROXY;
 
   new Cahe(htmlFilePath).archiveContent();
 } else {
