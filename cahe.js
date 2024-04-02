@@ -29,7 +29,7 @@ class Cahe {
 
   #compressionPromises = [];
 
-  #GATE_IMAGE_SIZE = 300;
+  #GATE_IMAGE_SIZE = 400;
 
   constructor(htmlFilePath) {
     this.FilePath = htmlFilePath;
@@ -92,9 +92,10 @@ class Cahe {
     }
   }
 
-  async #compressImage(imagePath) {
+  #compressImage(imagePath) {
     this.#compressionPromises.push(
-      tinify.fromFile(imagePath)
+      tinify
+        .fromFile(imagePath)
         .toBuffer(imagePath)
         .then((image) => {
           signale.success(`Image ${path.basename(imagePath)} compressed`);
@@ -117,34 +118,6 @@ class Cahe {
       const output = createWriteStream(outputArchiveFilePath);
 
       const htmlMinify = await this.#minifyHtml();
-
-      output.on('finish', () => {
-        const htmlFileSize = this.log.cleanedLength / 1e3;
-
-        signale.success('Create archive');
-        signale.info(`HTML file size: ${htmlFileSize.toFixed(2)} KB -${this.log.percentageReducedOfOriginal}%`);
-
-        if (htmlFileSize >= 100) signale.warn('The size of the HTML file exceeds 100 KB');
-
-        signale.info(`Images: ${this.#imagesCount}`);
-        signale.info(`Total size: ${(archive.pointer() / 1e6).toFixed(2)} MB`);
-        signale.info(`Path: ${outputArchiveFilePath}`);
-        signale.info('Archive path copied to clipboard.');
-
-        clipboard.writeSync(outputArchiveFilePath);
-
-        performance.mark('B');
-        performance.measure('A to B', 'A', 'B');
-
-        const [measure] = performance.getEntriesByName('A to B');
-
-        signale.log(`Time: ${(measure.duration / 1e3).toFixed(2)} s`);
-
-        performance.clearMarks();
-        performance.clearMeasures();
-      });
-
-      output.on('error', (error) => this.#stopWithError(error.message));
 
       archive.pipe(output);
       archive.append(htmlMinify, { name: this.newFileName });
@@ -173,15 +146,48 @@ class Cahe {
       }
 
       if (this.#compressionPromises) {
-        await Promise.all(this.#compressionPromises)
-          .then((items) => {
-            items.forEach((image) => archive.append(image.image, { name: image.name }));
-          });
+        const compressedImages = await Promise.all(this.#compressionPromises);
+
+        compressedImages.forEach(({ image, name }) => archive.append(image, { name }));
       }
+
+      output.on('close', () => {
+        const htmlFileSize = this.log.cleanedLength / 1e3;
+
+        signale.success('Create archive');
+        signale.info(`HTML file size: ${htmlFileSize.toFixed(2)} KB -${this.log.percentageReducedOfOriginal}%`);
+
+        if (htmlFileSize >= 100) signale.warn('The size of the HTML file exceeds 100 KB');
+
+        signale.info(`Images: ${this.#imagesCount}`);
+        signale.info(`Total size: ${(archive.pointer() / 1e6).toFixed(2)} MB`);
+        signale.info(`Path: ${outputArchiveFilePath}`);
+        signale.info('Archive path copied to clipboard.');
+
+        clipboard.writeSync(outputArchiveFilePath);
+
+        performance.mark('B');
+        performance.measure('A to B', 'A', 'B');
+
+        const [measure] = performance.getEntriesByName('A to B');
+
+        signale.log(`Time: ${(measure.duration / 1e3).toFixed(2)} s`);
+
+        performance.clearMarks();
+        performance.clearMeasures();
+
+        process.exit(1);
+      });
+
+      output.on('error', (error) => this.#stopWithError(error.message));
 
       archive.on('error', (error) => this.#stopWithError(error.message));
 
-      return await archive.finalize();
+      const test = await this.#compressionPromises;
+
+      console.log(test, 'test');
+
+      await archive.finalize();
     } catch (error) {
       return this.#stopWithError(error.message);
     }
@@ -196,6 +202,13 @@ if (htmlFilePath && path.extname(htmlFilePath) === '.html' && fs.existsSync(html
   tinify.key = process.env.TINIFY_KEY;
 
   if (process.env.PROXY) tinify.proxy = process.env.PROXY;
+
+  tinify.key = 'ZXFztlFFBFQszPBmBLF14LPKcrtqPXvL';
+
+  tinify.proxy = 'http://192.168.228.11:3128';
+
+//   TINIFY_KEY=ZXFztlFFBFQszPBmBLF14LPKcrtqPXvL
+// PROXY=http://192.168.228.11:3128
 
   new Cahe(htmlFilePath).archiveContent();
 } else {
