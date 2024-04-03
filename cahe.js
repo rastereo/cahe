@@ -27,7 +27,7 @@ class Cahe {
 
   #imagesCount = 0;
 
-  #GATE_IMAGE_SIZE = 100;
+  #GATE_IMAGE_SIZE = 400;
 
   constructor(htmlFilePath) {
     this.FilePath = htmlFilePath;
@@ -35,6 +35,7 @@ class Cahe {
     this.imagesDirPath = path.join(this.dirPath, 'images');
     this.fileName = path.basename(this.FilePath, '.html');
     this.newFileName = `${this.fileName}.min.html`;
+    this.outputArchiveFilePath = path.resolve(this.dirPath, `${this.fileName}.zip`);
   }
 
   // eslint-disable-next-line class-methods-use-this
@@ -110,9 +111,7 @@ class Cahe {
     try {
       const archive = archiver('zip', { zlib: { level: 9 } });
 
-      const outputArchiveFilePath = path.resolve(this.dirPath, `${this.fileName}.zip`);
-
-      const output = createWriteStream(outputArchiveFilePath);
+      const output = createWriteStream(this.outputArchiveFilePath);
 
       const htmlMinify = await this.#minifyHtml();
 
@@ -155,10 +154,10 @@ class Cahe {
 
         signale.info(`Images: ${this.#imagesCount}`);
         signale.info(`Total size: ${(archive.pointer() / 1e6).toFixed(2)} MB`);
-        signale.info(`Path: ${outputArchiveFilePath}`);
+        signale.info(`Path: ${this.outputArchiveFilePath}`);
         signale.info('Archive path copied to clipboard.');
 
-        clipboard.writeSync(outputArchiveFilePath);
+        clipboard.writeSync(this.outputArchiveFilePath);
 
         performance.mark('B');
         performance.measure('A to B', 'A', 'B');
