@@ -27,9 +27,7 @@ class Cahe {
 
   #imagesCount = 0;
 
-  #compressionPromises = [];
-
-  #GATE_IMAGE_SIZE = 400;
+  #GATE_IMAGE_SIZE = 100;
 
   constructor(htmlFilePath) {
     this.FilePath = htmlFilePath;
@@ -39,6 +37,7 @@ class Cahe {
     this.newFileName = `${this.fileName}.min.html`;
   }
 
+  // eslint-disable-next-line class-methods-use-this
   #stopWithError(errorMessage) {
     signale.fatal(errorMessage);
 
@@ -49,6 +48,7 @@ class Cahe {
     let matches;
     const srcList = [];
 
+    // eslint-disable-next-line no-cond-assign
     while ((matches = this.#regexImageSrc.exec(htmlString)) !== null) {
       const src = matches[1];
 
@@ -92,23 +92,20 @@ class Cahe {
     }
   }
 
-  #compressImage(imagePath) {
-    this.#compressionPromises.push(
-      tinify
-        .fromFile(imagePath)
-        .toBuffer(imagePath)
-        .then((image) => {
-          signale.success(`Image ${path.basename(imagePath)} compressed`);
+  // eslint-disable-next-line class-methods-use-this, consistent-return
+  async #compressImage(imagePath) {
+    try {
+      const compressedImage = tinify.fromFile(imagePath).toBuffer(imagePath);
 
-          return {
-            name: `images/${path.basename(imagePath)}`,
-            image,
-          };
-        })
-        .catch((error) => signale.error(`Tinify ${error}`)),
-    );
+      signale.success(`Image ${path.basename(imagePath)} compressed`);
+
+      return compressedImage;
+    } catch (error) {
+      signale.error(`Tinify ${error}`);
+    }
   }
 
+  // eslint-disable-next-line consistent-return
   async archiveContent() {
     try {
       const archive = archiver('zip', { zlib: { level: 9 } });
@@ -130,10 +127,13 @@ class Cahe {
           const imagePath = path.join(this.dirPath, src);
 
           if (fs.existsSync(imagePath)) {
+            const name = `images/${path.basename(imagePath)}`;
+
             if (path.extname(imagePath) !== '.gif' && fs.statSync(imagePath).size / 1e3 >= this.#GATE_IMAGE_SIZE) {
-              this.#compressImage(imagePath);
+              // eslint-disable-next-line no-await-in-loop
+              archive.append(await this.#compressImage(imagePath), { name });
             } else {
-              archive.file(imagePath, { name: `images/${path.basename(imagePath)}` });
+              archive.file(imagePath, { name });
             }
 
             this.#imagesCount += 1;
@@ -143,12 +143,6 @@ class Cahe {
         }
       } else {
         signale.warn('Images directory is missing');
-      }
-
-      if (this.#compressionPromises) {
-        const compressedImages = await Promise.all(this.#compressionPromises);
-
-        compressedImages.forEach(({ image, name }) => archive.append(image, { name }));
       }
 
       output.on('close', () => {
@@ -175,17 +169,11 @@ class Cahe {
 
         performance.clearMarks();
         performance.clearMeasures();
-
-        process.exit(1);
       });
 
       output.on('error', (error) => this.#stopWithError(error.message));
 
       archive.on('error', (error) => this.#stopWithError(error.message));
-
-      const test = await this.#compressionPromises;
-
-      console.log(test, 'test');
 
       await archive.finalize();
     } catch (error) {
@@ -197,18 +185,11 @@ class Cahe {
 const htmlFilePath = process.argv[2];
 
 if (htmlFilePath && path.extname(htmlFilePath) === '.html' && fs.existsSync(htmlFilePath)) {
-  dotenv.config();
+  dotenv.config({ path: path.resolve(import.meta.dirname, '.env') });
 
   tinify.key = process.env.TINIFY_KEY;
 
   if (process.env.PROXY) tinify.proxy = process.env.PROXY;
-
-  tinify.key = 'ZXFztlFFBFQszPBmBLF14LPKcrtqPXvL';
-
-  tinify.proxy = 'http://192.168.228.11:3128';
-
-//   TINIFY_KEY=ZXFztlFFBFQszPBmBLF14LPKcrtqPXvL
-// PROXY=http://192.168.228.11:3128
 
   new Cahe(htmlFilePath).archiveContent();
 } else {
