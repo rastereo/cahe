@@ -9,8 +9,7 @@
   "type": "module",
   "scripts": {
     "init": "chmod +x cahe.js && npm install -g",
-    "lint": "eslint cahe.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "lint": "eslint cahe.js"
   },
   "repository": {
     "type": "git",
@@ -30,7 +29,9 @@
   "dependencies": {
     "archiver": "^7.0.1",
     "clipboardy": "^4.0.0",
+    "dotenv": "^16.4.5",
     "html-crush": "^6.0.18",
-    "signale": "^1.4.0"
+    "signale": "^1.4.0",
+    "tinify": "^1.7.1"
   }
 }
