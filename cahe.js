@@ -62,6 +62,35 @@ class Cahe {
     return srcList;
   }
 
+  #createProcessLog(archiveSize) {
+    const htmlFileSize = this.minifyHtmlLog.cleanedLength / 1e3;
+    const size = (this.minifyHtmlLog.cleanedLength / this.htmlOriginalSize) * 100;
+
+    signale.success('Create archive');
+    signale.info(
+      `HTML file size: ${htmlFileSize.toFixed(2)} KB -${size.toFixed(1)}%`,
+    );
+
+    if (htmlFileSize >= 100) signale.warn('The size of the HTML file exceeds 100 KB');
+
+    signale.info(`Images: ${this.imagesSum}`);
+    signale.info(`Total size: ${(archiveSize / 1e6).toFixed(2)} MB`);
+    signale.info(`Path: ${this.outputArchiveFilePath}`);
+    signale.info('Archive path copied to clipboard.');
+
+    clipboard.writeSync(this.outputArchiveFilePath);
+
+    performance.mark('B');
+    performance.measure('A to B', 'A', 'B');
+
+    const [measure] = performance.getEntriesByName('A to B');
+
+    signale.log(`Time: ${(measure.duration / 1e3).toFixed(2)} s`);
+
+    performance.clearMarks();
+    performance.clearMeasures();
+  }
+
   async #importHtmlAndConvertToString() {
     try {
       this.htmlOriginalSize = fs.statSync(path.resolve(this.FilePath)).size;
@@ -152,35 +181,7 @@ class Cahe {
         signale.warn('Images directory is missing');
       }
 
-      output.on('finish', () => {
-        const htmlFileSize = this.minifyHtmlLog.cleanedLength / 1e3;
-        const size = (this.minifyHtmlLog.cleanedLength / this.htmlOriginalSize) * 100;
-
-        signale.success('Create archive');
-        signale.info(
-          `HTML file size: ${htmlFileSize.toFixed(2)} KB -${size.toFixed(1)}%`,
-        );
-
-        if (htmlFileSize >= 100) signale.warn('The size of the HTML file exceeds 100 KB');
-
-        signale.info(`Images: ${this.imagesCount}`);
-        signale.info(`Total size: ${(archive.pointer() / 1e6).toFixed(2)} MB`);
-        signale.info(`Path: ${this.outputArchiveFilePath}`);
-        signale.info('Archive path copied to clipboard.');
-
-        clipboard.writeSync(this.outputArchiveFilePath);
-
-        performance.mark('B');
-        performance.measure('A to B', 'A', 'B');
-
-        const [measure] = performance.getEntriesByName('A to B');
-
-        signale.log(`Time: ${(measure.duration / 1e3).toFixed(2)} s`);
-
-        performance.clearMarks();
-        performance.clearMeasures();
-      });
-
+      output.on('finish', () => this.#createProcessLog(archive.pointer()));
       output.on('error', (error) => this.#stopWithError(error.message));
 
       archive.on('error', (error) => this.#stopWithError(error.message));
