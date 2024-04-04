@@ -3,6 +3,7 @@ import fs, { createWriteStream } from 'fs';
 import path from 'path';
 import { performance } from 'perf_hooks';
 import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
 import { crush } from 'html-crush'; // https://codsen.com/os/html-crush
 import archiver from 'archiver'; // https://www.archiverjs.com/
 import clipboard from 'clipboardy'; // https://github.com/sindresorhus/clipboardy
@@ -68,9 +69,11 @@ class Cahe {
 
       if (!data) throw new Error('HTML file is empty. Please check the file and try again');
 
+      const singleLineData = data.replace(/\n/g, '').replace(/\s\s+/g, ' ');
+
       signale.success('Convert to a string');
 
-      return data;
+      return singleLineData;
     } catch (err) {
       return this.#stopWithError(err.message);
     }
@@ -184,7 +187,11 @@ class Cahe {
 const htmlFilePath = process.argv[2];
 
 if (htmlFilePath && path.extname(htmlFilePath) === '.html' && fs.existsSync(htmlFilePath)) {
-  dotenv.config({ path: path.resolve(import.meta.dirname, '.env') });
+  // eslint-disable-next-line no-underscore-dangle
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+  // Now you can safely use __dirname
+  dotenv.config({ path: path.resolve(__dirname, '.env') });
 
   tinify.key = process.env.TINIFY_KEY;
 
