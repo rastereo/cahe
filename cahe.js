@@ -43,23 +43,18 @@ class Cahe {
     this.outputArchiveFilePath = path.resolve(this.dirPath, `${this.fileName}.zip`);
   }
 
-  // eslint-disable-next-line class-methods-use-this
   #stopWithError(errorMessage) {
     signale.fatal(errorMessage);
 
     process.exit(1);
   }
 
-  #getImagesSrc(htmlString) {
-    let matches;
+  #getImageSrcList(htmlString) {
+    const matches = htmlString.matchAll(this.#regexImageSrc);
     const srcList = [];
 
-    // eslint-disable-next-line no-cond-assign
-    while ((matches = this.#regexImageSrc.exec(htmlString)) !== null) {
-      const src = matches[1];
-
-      if (!srcList.includes(src)) srcList.push(src);
-    }
+    // eslint-disable-next-line no-restricted-syntax
+    for (const src of matches) srcList.push(src[1]);
 
     return srcList;
   }
@@ -130,7 +125,6 @@ class Cahe {
     }
   }
 
-  // eslint-disable-next-line class-methods-use-this, consistent-return
   async #compressImage(imagePath) {
     try {
       const compressedImage = await tinify.fromFile(imagePath).toBuffer(imagePath);
@@ -141,6 +135,8 @@ class Cahe {
     } catch (error) {
       signale.error(`Tinify ${error}`);
     }
+
+    return null;
   }
 
   async #createImageDir(archive) {
@@ -155,9 +151,9 @@ class Cahe {
           path.extname(imagePath) !== '.gif'
           && fs.statSync(imagePath).size / 1e3 >= this.#GATE_IMAGE_SIZE
         ) {
+          // eslint-disable-next-line no-await-in-loop
           const compressedImage = await this.#compressImage(imagePath);
 
-          // eslint-disable-next-line no-await-in-loop
           archive.append(compressedImage, { name });
         } else {
           archive.file(imagePath, { name });
@@ -182,7 +178,7 @@ class Cahe {
       archive.append(htmlMinify, { name: this.newFileName });
 
       if (fs.existsSync(this.imagesDirPath)) {
-        this.imageSrcList = this.#getImagesSrc(htmlMinify);
+        this.imageSrcList = this.#getImageSrcList(htmlMinify);
 
         await this.#createImageDir(archive);
       } else {
@@ -198,7 +194,7 @@ class Cahe {
 
       return this;
     } catch (error) {
-      return this.#stopWithError(error.message);
+      return this.#stopWithError(error);
     }
   }
 }

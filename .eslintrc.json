@@ -8,7 +8,9 @@
     "ecmaVersion": "latest",
     "sourceType": "module"
   },
-  "rules": {},
+  "rules": {
+    "class-methods-use-this": "off"
+  },
   "settings": {
     "import/resolver": {
       "node": {
