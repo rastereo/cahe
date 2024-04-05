@@ -19,7 +19,9 @@ class Cahe {
 
   #regexImageSrc = /src="(?!http:\/\/|https:\/\/)([^"]*)"/g;
 
-  #GATE_IMAGE_SIZE = 400;
+  #GATE_IMAGE_SIZE = 1;
+
+  #COMPRESSION_RATIO = 8;
 
   #htmlCrushConfig = {
     lineLengthLimit: 500,
@@ -131,7 +133,7 @@ class Cahe {
   // eslint-disable-next-line class-methods-use-this, consistent-return
   async #compressImage(imagePath) {
     try {
-      const compressedImage = tinify.fromFile(imagePath).toBuffer(imagePath);
+      const compressedImage = await tinify.fromFile(imagePath).toBuffer(imagePath);
 
       signale.success(`Image ${path.basename(imagePath)} compressed`);
 
@@ -141,9 +143,36 @@ class Cahe {
     }
   }
 
+  async #createImageDir(archive) {
+    // eslint-disable-next-line no-restricted-syntax
+    for (const src of this.imageSrcList) {
+      const imagePath = path.join(this.dirPath, src);
+
+      if (path.dirname(src) === this.imageDirName && fs.existsSync(imagePath)) {
+        const name = `${this.imageDirName}/${path.basename(imagePath)}`;
+
+        if (
+          path.extname(imagePath) !== '.gif'
+          && fs.statSync(imagePath).size / 1e3 >= this.#GATE_IMAGE_SIZE
+        ) {
+          const compressedImage = await this.#compressImage(imagePath);
+
+          // eslint-disable-next-line no-await-in-loop
+          archive.append(compressedImage, { name });
+        } else {
+          archive.file(imagePath, { name });
+        }
+
+        this.imagesSum += 1;
+      } else {
+        signale.warn(`Image file ${imagePath} is missing`);
+      }
+    }
+  }
+
   async archiveContent() {
     try {
-      const archive = archiver('zip', { zlib: { level: 9 } });
+      const archive = archiver('zip', { zlib: { level: this.#COMPRESSION_RATIO } });
 
       const output = createWriteStream(this.outputArchiveFilePath);
 
@@ -155,28 +184,7 @@ class Cahe {
       if (fs.existsSync(this.imagesDirPath)) {
         this.imageSrcList = this.#getImagesSrc(htmlMinify);
 
-        // eslint-disable-next-line no-restricted-syntax
-        for (const src of this.imageSrcList) {
-          const imagePath = path.join(this.dirPath, src);
-
-          if (path.dirname(src) === this.imageDirName && fs.existsSync(imagePath)) {
-            const name = `${this.imageDirName}/${path.basename(imagePath)}`;
-
-            if (
-              path.extname(imagePath) !== '.gif'
-              && fs.statSync(imagePath).size / 1e3 >= this.#GATE_IMAGE_SIZE
-            ) {
-              // eslint-disable-next-line no-await-in-loop
-              archive.append(await this.#compressImage(imagePath), { name });
-            } else {
-              archive.file(imagePath, { name });
-            }
-
-            this.imagesSum += 1;
-          } else {
-            signale.warn(`Image file ${imagePath} is missing`);
-          }
-        }
+        await this.#createImageDir(archive);
       } else {
         signale.warn('Images directory is missing');
       }
@@ -202,10 +210,9 @@ if (
   && path.extname(htmlFilePath) === '.html'
   && fs.existsSync(htmlFilePath)
 ) {
-  // eslint-disable-next-line no-underscore-dangle
-  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  const dirname = path.dirname(fileURLToPath(import.meta.url));
 
-  dotenv.config({ path: path.resolve(__dirname, '.env') });
+  dotenv.config({ path: path.resolve(dirname, '.env') });
 
   tinify.key = process.env.TINIFY_KEY;
 
