@@ -30,6 +30,7 @@
     "archiver": "^7.0.1",
     "clipboardy": "^4.0.0",
     "dotenv": "^16.4.5",
+    "email-comb": "^7.0.21",
     "html-crush": "^6.0.18",
     "signale": "^1.4.0",
     "tinify": "^1.7.1"

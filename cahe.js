@@ -5,6 +5,7 @@ import { performance } from 'perf_hooks';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { crush } from 'html-crush'; // https://codsen.com/os/html-crush
+import { comb } from 'email-comb'; // https://codsen.com/os/email-comb
 import archiver from 'archiver'; // https://www.archiverjs.com/
 import clipboard from 'clipboardy'; // https://github.com/sindresorhus/clipboardy
 import signale from 'signale'; // https://github.com/klaudiosinani/signale
@@ -23,16 +24,38 @@ class Cahe {
 
   #COMPRESSION_RATIO = 8;
 
-  #htmlCrushConfig = {
-    lineLengthLimit: 500,
-    removeIndentations: true,
-    removeLineBreaks: true,
+  #htmlCombConfig = {
+    whitelist: [],
+    backend: [],
+    uglify: true,
     removeHTMLComments: true,
     removeCSSComments: true,
+    doNotRemoveHTMLCommentsWhoseOpeningTagContains: [
+      '[if',
+      '[endif',
+    ],
+    htmlCrushOpts: {
+      removeLineBreaks: true,
+      removeIndentations: true,
+      removeHTMLComment: true,
+      removeCSSComments: true,
+      lineLengthLimit: 500,
+    },
     reportProgressFunc: null,
     reportProgressFuncFrom: 0,
     reportProgressFuncTo: 100,
   };
+
+  // #htmlCrushConfig = {
+  //   lineLengthLimit: 500,
+  //   removeIndentations: true,
+  //   removeLineBreaks: true,
+  //   removeHTMLComments: true,
+  //   removeCSSComments: true,
+  //   reportProgressFunc: null,
+  //   reportProgressFuncFrom: 0,
+  //   reportProgressFuncTo: 100,
+  // };
 
   constructor(htmlFilePath) {
     this.FilePath = htmlFilePath;
@@ -110,9 +133,14 @@ class Cahe {
 
   async #minifyHtml() {
     try {
-      const { result, log } = crush(
+      // const { result, log } = crush(
+      //   await this.#importHtmlAndConvertToString(),
+      //   this.#htmlCrushConfig,
+      // );
+
+      const { result, log } = comb(
         await this.#importHtmlAndConvertToString(),
-        this.#htmlCrushConfig,
+        this.#htmlCombConfig,
       );
 
       signale.success('Html-crush minify');
