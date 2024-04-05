@@ -19,7 +19,7 @@ class Cahe {
 
   #regexImageSrc = /src="(?!http:\/\/|https:\/\/)([^"]*)"/g;
 
-  #GATE_IMAGE_SIZE = 1;
+  #GATE_IMAGE_SIZE = 400;
 
   #COMPRESSION_RATIO = 8;
 
