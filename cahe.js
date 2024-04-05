@@ -3,6 +3,7 @@ import fs, { createWriteStream } from 'fs';
 import path from 'path';
 import { performance } from 'perf_hooks';
 import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
 import { crush } from 'html-crush'; // https://codsen.com/os/html-crush
 import archiver from 'archiver'; // https://www.archiverjs.com/
 import clipboard from 'clipboardy'; // https://github.com/sindresorhus/clipboardy
@@ -12,7 +13,15 @@ import tinify from 'tinify'; // https://tinypng.com/developers/reference/nodejs
 performance.mark('A');
 
 class Cahe {
+  imagesSum = 0;
+
+  imageDirName = 'images';
+
   #regexImageSrc = /src="(?!http:\/\/|https:\/\/)([^"]*)"/g;
+
+  #GATE_IMAGE_SIZE = 400;
+
+  #COMPRESSION_RATIO = 8;
 
   #htmlCrushConfig = {
     lineLengthLimit: 500,
@@ -25,41 +34,63 @@ class Cahe {
     reportProgressFuncTo: 100,
   };
 
-  #imagesCount = 0;
-
-  #GATE_IMAGE_SIZE = 100;
-
   constructor(htmlFilePath) {
     this.FilePath = htmlFilePath;
     this.dirPath = path.dirname(this.FilePath);
-    this.imagesDirPath = path.join(this.dirPath, 'images');
+    this.imagesDirPath = path.join(this.dirPath, this.imageDirName);
     this.fileName = path.basename(this.FilePath, '.html');
     this.newFileName = `${this.fileName}.min.html`;
+    this.outputArchiveFilePath = path.resolve(this.dirPath, `${this.fileName}.zip`);
   }
 
-  // eslint-disable-next-line class-methods-use-this
   #stopWithError(errorMessage) {
     signale.fatal(errorMessage);
 
     process.exit(1);
   }
 
-  #getImagesSrc(htmlString) {
-    let matches;
+  #getImageSrcList(htmlString) {
+    const matches = htmlString.matchAll(this.#regexImageSrc);
     const srcList = [];
 
-    // eslint-disable-next-line no-cond-assign
-    while ((matches = this.#regexImageSrc.exec(htmlString)) !== null) {
-      const src = matches[1];
-
-      if (!srcList.includes(src)) srcList.push(src);
-    }
+    // eslint-disable-next-line no-restricted-syntax
+    for (const src of matches) srcList.push(src[1]);
 
     return srcList;
   }
 
+  #createProcessLog(archiveSize) {
+    const htmlFileSize = this.minifyHtmlLog.cleanedLength / 1e3;
+    const size = (this.minifyHtmlLog.cleanedLength / this.htmlOriginalSize) * 100;
+
+    signale.success('Create archive');
+    signale.info(
+      `HTML file size: ${htmlFileSize.toFixed(2)} KB -${size.toFixed(1)}%`,
+    );
+
+    if (htmlFileSize >= 100) signale.warn('The size of the HTML file exceeds 100 KB');
+
+    signale.info(`Images: ${this.imagesSum}`);
+    signale.info(`Total size: ${(archiveSize / 1e6).toFixed(2)} MB`);
+    signale.info(`Path: ${this.outputArchiveFilePath}`);
+    signale.info('Archive path copied to clipboard.');
+
+    clipboard.writeSync(this.outputArchiveFilePath);
+
+    performance.mark('B');
+    performance.measure('A to B', 'A', 'B');
+
+    const [measure] = performance.getEntriesByName('A to B');
+
+    signale.log(`Time: ${(measure.duration / 1e3).toFixed(2)} s`);
+
+    performance.clearMarks();
+    performance.clearMeasures();
+  }
+
   async #importHtmlAndConvertToString() {
     try {
+      this.htmlOriginalSize = fs.statSync(path.resolve(this.FilePath)).size;
       const data = await fs.promises.readFile(
         path.resolve(this.FilePath),
         { encoding: 'utf-8' },
@@ -67,9 +98,11 @@ class Cahe {
 
       if (!data) throw new Error('HTML file is empty. Please check the file and try again');
 
+      const singleLineData = data.replace(/\n/g, '').replace(/\s\s+/g, ' ');
+
       signale.success('Convert to a string');
 
-      return data;
+      return singleLineData;
     } catch (err) {
       return this.#stopWithError(err.message);
     }
@@ -84,7 +117,7 @@ class Cahe {
 
       signale.success('Html-crush minify');
 
-      this.log = log;
+      this.minifyHtmlLog = log;
 
       return result;
     } catch (error) {
@@ -92,10 +125,9 @@ class Cahe {
     }
   }
 
-  // eslint-disable-next-line class-methods-use-this, consistent-return
   async #compressImage(imagePath) {
     try {
-      const compressedImage = tinify.fromFile(imagePath).toBuffer(imagePath);
+      const compressedImage = await tinify.fromFile(imagePath).toBuffer(imagePath);
 
       signale.success(`Image ${path.basename(imagePath)} compressed`);
 
@@ -103,16 +135,42 @@ class Cahe {
     } catch (error) {
       signale.error(`Tinify ${error}`);
     }
+
+    return null;
   }
 
-  // eslint-disable-next-line consistent-return
+  async #createImageDir(archive) {
+    // eslint-disable-next-line no-restricted-syntax
+    for (const src of this.imageSrcList) {
+      const imagePath = path.join(this.dirPath, src);
+
+      if (path.dirname(src) === this.imageDirName && fs.existsSync(imagePath)) {
+        const name = `${this.imageDirName}/${path.basename(imagePath)}`;
+
+        if (
+          path.extname(imagePath) !== '.gif'
+          && fs.statSync(imagePath).size / 1e3 >= this.#GATE_IMAGE_SIZE
+        ) {
+          // eslint-disable-next-line no-await-in-loop
+          const compressedImage = await this.#compressImage(imagePath);
+
+          archive.append(compressedImage, { name });
+        } else {
+          archive.file(imagePath, { name });
+        }
+
+        this.imagesSum += 1;
+      } else {
+        signale.warn(`Image file ${imagePath} is missing`);
+      }
+    }
+  }
+
   async archiveContent() {
     try {
-      const archive = archiver('zip', { zlib: { level: 9 } });
+      const archive = archiver('zip', { zlib: { level: this.#COMPRESSION_RATIO } });
 
-      const outputArchiveFilePath = path.resolve(this.dirPath, `${this.fileName}.zip`);
-
-      const output = createWriteStream(outputArchiveFilePath);
+      const output = createWriteStream(this.outputArchiveFilePath);
 
       const htmlMinify = await this.#minifyHtml();
 
@@ -120,78 +178,44 @@ class Cahe {
       archive.append(htmlMinify, { name: this.newFileName });
 
       if (fs.existsSync(this.imagesDirPath)) {
-        const imageSrcList = this.#getImagesSrc(htmlMinify);
+        this.imageSrcList = this.#getImageSrcList(htmlMinify);
 
-        // eslint-disable-next-line no-restricted-syntax
-        for (const src of imageSrcList) {
-          const imagePath = path.join(this.dirPath, src);
-
-          if (fs.existsSync(imagePath)) {
-            const name = `images/${path.basename(imagePath)}`;
-
-            if (path.extname(imagePath) !== '.gif' && fs.statSync(imagePath).size / 1e3 >= this.#GATE_IMAGE_SIZE) {
-              // eslint-disable-next-line no-await-in-loop
-              archive.append(await this.#compressImage(imagePath), { name });
-            } else {
-              archive.file(imagePath, { name });
-            }
-
-            this.#imagesCount += 1;
-          } else {
-            signale.warn(`Image file ${imagePath} is missing`);
-          }
-        }
+        await this.#createImageDir(archive);
       } else {
         signale.warn('Images directory is missing');
       }
 
-      output.on('close', () => {
-        const htmlFileSize = this.log.cleanedLength / 1e3;
-
-        signale.success('Create archive');
-        signale.info(`HTML file size: ${htmlFileSize.toFixed(2)} KB -${this.log.percentageReducedOfOriginal}%`);
-
-        if (htmlFileSize >= 100) signale.warn('The size of the HTML file exceeds 100 KB');
-
-        signale.info(`Images: ${this.#imagesCount}`);
-        signale.info(`Total size: ${(archive.pointer() / 1e6).toFixed(2)} MB`);
-        signale.info(`Path: ${outputArchiveFilePath}`);
-        signale.info('Archive path copied to clipboard.');
-
-        clipboard.writeSync(outputArchiveFilePath);
-
-        performance.mark('B');
-        performance.measure('A to B', 'A', 'B');
-
-        const [measure] = performance.getEntriesByName('A to B');
-
-        signale.log(`Time: ${(measure.duration / 1e3).toFixed(2)} s`);
-
-        performance.clearMarks();
-        performance.clearMeasures();
-      });
-
+      output.on('finish', () => this.#createProcessLog(archive.pointer()));
       output.on('error', (error) => this.#stopWithError(error.message));
 
       archive.on('error', (error) => this.#stopWithError(error.message));
 
       await archive.finalize();
+
+      return this;
     } catch (error) {
-      return this.#stopWithError(error.message);
+      return this.#stopWithError(error);
     }
   }
 }
 
 const htmlFilePath = process.argv[2];
 
-if (htmlFilePath && path.extname(htmlFilePath) === '.html' && fs.existsSync(htmlFilePath)) {
-  dotenv.config({ path: path.resolve(import.meta.dirname, '.env') });
+if (
+  htmlFilePath
+  && path.extname(htmlFilePath) === '.html'
+  && fs.existsSync(htmlFilePath)
+) {
+  const dirname = path.dirname(fileURLToPath(import.meta.url));
+
+  dotenv.config({ path: path.resolve(dirname, '.env') });
 
   tinify.key = process.env.TINIFY_KEY;
 
   if (process.env.PROXY) tinify.proxy = process.env.PROXY;
 
-  new Cahe(htmlFilePath).archiveContent();
+  new Cahe(htmlFilePath).archiveContent()
+    .then((data) => console.log(data));
 } else {
   signale.fatal(
     'The path to the HTML file is either incorrect or missing. Please verify the path and ensure it is correctly specified.',
