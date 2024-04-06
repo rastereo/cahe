@@ -87,9 +87,8 @@ class Cahe {
   #createProcessLog(archiveSize) {
     const htmlInterestMiniFy = (this.minifyHtmlLog.cleanedLength / this.htmlOriginalSize) * 100;
 
-    signale.success('Create archive');
     signale.info(
-      `HTML file size: ${(this.minifyHtmlLog.cleanedLength / 1e3).toFixed(2)} KB ${htmlInterestMiniFy.toFixed(1) - 100}%`,
+      `HTML file size: ${(this.minifyHtmlLog.cleanedLength / 1e3).toFixed(2)} KB ${htmlInterestMiniFy.toFixed(0) - 100}%`,
     );
 
     if (this.minifyHtmlLog.cleanedLength >= 1e5) signale.warn('The size of the HTML file exceeds 100 KB');
@@ -196,9 +195,7 @@ class Cahe {
   async archiveContent() {
     try {
       const archive = archiver('zip', { zlib: { level: this.#COMPRESSION_RATIO } });
-
       const output = createWriteStream(this.outputArchiveFilePath);
-
       const htmlMinify = await this.#minifyHtml();
 
       archive.pipe(output);
@@ -212,12 +209,16 @@ class Cahe {
         signale.warn('Images directory is missing');
       }
 
-      output.on('finish', () => this.#createProcessLog(archive.pointer()));
+      output.on('finish', () => this.#createProcessLog(this.archiveSize));
       output.on('error', (error) => this.#stopWithError(error.message));
 
       archive.on('error', (error) => this.#stopWithError(error.message));
 
       await archive.finalize();
+
+      signale.success('Create archive');
+
+      this.archiveSize = archive.pointer();
 
       return this;
     } catch (error) {
