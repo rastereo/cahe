@@ -4,7 +4,7 @@ import path from 'path';
 import { performance } from 'perf_hooks';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
-import { crush } from 'html-crush'; // https://codsen.com/os/html-crush
+// import { crush } from 'html-crush'; // https://codsen.com/os/html-crush
 import { comb } from 'email-comb'; // https://codsen.com/os/email-comb
 import archiver from 'archiver'; // https://www.archiverjs.com/
 import clipboard from 'clipboardy'; // https://github.com/sindresorhus/clipboardy
@@ -77,21 +77,22 @@ class Cahe {
     const srcList = [];
 
     // eslint-disable-next-line no-restricted-syntax
-    for (const src of matches) srcList.push(src[1]);
+    for (const src of matches) {
+      if (!srcList.includes(src[1])) srcList.push(src[1]);
+    }
 
     return srcList;
   }
 
   #createProcessLog(archiveSize) {
-    const htmlFileSize = this.minifyHtmlLog.cleanedLength / 1e3;
-    const size = (this.minifyHtmlLog.cleanedLength / this.htmlOriginalSize) * 100;
+    const htmlInterestMiniFy = (this.minifyHtmlLog.cleanedLength / this.htmlOriginalSize) * 100;
 
     signale.success('Create archive');
     signale.info(
-      `HTML file size: ${htmlFileSize.toFixed(2)} KB -${size.toFixed(1)}%`,
+      `HTML file size: ${(this.minifyHtmlLog.cleanedLength / 1e3).toFixed(2)} KB ${htmlInterestMiniFy.toFixed(1) - 100}%`,
     );
 
-    if (htmlFileSize >= 100) signale.warn('The size of the HTML file exceeds 100 KB');
+    if (this.minifyHtmlLog.cleanedLength >= 1e5) signale.warn('The size of the HTML file exceeds 100 KB');
 
     signale.info(`Images: ${this.imagesSum}`);
     signale.info(`Total size: ${(archiveSize / 1e6).toFixed(2)} MB`);
@@ -180,9 +181,7 @@ class Cahe {
           && fs.statSync(imagePath).size / 1e3 >= this.#GATE_IMAGE_SIZE
         ) {
           // eslint-disable-next-line no-await-in-loop
-          const compressedImage = await this.#compressImage(imagePath);
-
-          archive.append(compressedImage, { name });
+          archive.append(await this.#compressImage(imagePath), { name });
         } else {
           archive.file(imagePath, { name });
         }
