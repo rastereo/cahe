@@ -10,6 +10,7 @@ import archiver from 'archiver'; // https://www.archiverjs.com/
 import clipboard from 'clipboardy'; // https://github.com/sindresorhus/clipboardy
 import signale from 'signale'; // https://github.com/klaudiosinani/signale
 import tinify from 'tinify'; // https://tinypng.com/developers/reference/nodejs
+import { inline } from "@css-inline/css-inline"; // https://github.com/Stranger6667/css-inline/tree/master/bindings/javascript
 
 performance.mark('A');
 
@@ -121,11 +122,15 @@ class Cahe {
 
       if (!data) throw new Error('HTML file is empty. Please check the file and try again');
 
-      const singleLineData = data.replace(/\n/g, '').replace(/\s\s+/g, ' ');
+      const inlineCssData = inline(data);
+
+      // const singleLineData = inlineCssData.replace(/\n/g, '').replace(/\s\s+/g, ' ');
+
+      console.log(inlineCssData);
 
       signale.success('Convert to a string');
 
-      return singleLineData;
+      return inlineCssData;
     } catch (err) {
       return this.#stopWithError(err.message);
     }
