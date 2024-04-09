@@ -4,13 +4,12 @@ import path from 'path';
 import { performance } from 'perf_hooks';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
-// import { crush } from 'html-crush'; // https://codsen.com/os/html-crush
 import { comb } from 'email-comb'; // https://codsen.com/os/email-comb
 import archiver from 'archiver'; // https://www.archiverjs.com/
 import clipboard from 'clipboardy'; // https://github.com/sindresorhus/clipboardy
 import signale from 'signale'; // https://github.com/klaudiosinani/signale
 import tinify from 'tinify'; // https://tinypng.com/developers/reference/nodejs
-import { inline } from "@css-inline/css-inline"; // https://github.com/Stranger6667/css-inline/tree/master/bindings/javascript
+import juice from 'juice'; // https://github.com/Automattic/juice
 
 performance.mark('A');
 
@@ -19,9 +18,11 @@ class Cahe {
 
   imageDirName = 'images';
 
+  cssFileName = 'style';
+
   #regexImageSrc = /src="(?!http:\/\/|https:\/\/)([^"]*)"/g;
 
-  #GATE_IMAGE_SIZE = 400;
+  #GATE_IMAGE_SIZE = 1;
 
   #COMPRESSION_RATIO = 8;
 
@@ -47,22 +48,12 @@ class Cahe {
     reportProgressFuncTo: 100,
   };
 
-  // #htmlCrushConfig = {
-  //   lineLengthLimit: 500,
-  //   removeIndentations: true,
-  //   removeLineBreaks: true,
-  //   removeHTMLComments: true,
-  //   removeCSSComments: true,
-  //   reportProgressFunc: null,
-  //   reportProgressFuncFrom: 0,
-  //   reportProgressFuncTo: 100,
-  // };
-
   constructor(htmlFilePath) {
     this.FilePath = htmlFilePath;
     this.dirPath = path.dirname(this.FilePath);
     this.imagesDirPath = path.join(this.dirPath, this.imageDirName);
     this.fileName = path.basename(this.FilePath, '.html');
+    this.cssFilePath = path.join(this.dirPath, `${this.cssFileName}.css`);
     this.newFileName = `${this.fileName}.min.html`;
     this.outputArchiveFilePath = path.resolve(this.dirPath, `${this.fileName}.zip`);
   }
@@ -112,25 +103,35 @@ class Cahe {
     performance.clearMeasures();
   }
 
-  async #importHtmlAndConvertToString() {
+  async #addInlineCss() {
     try {
       this.htmlOriginalSize = fs.statSync(path.resolve(this.FilePath)).size;
-      const data = await fs.promises.readFile(
+
+      let dataString;
+
+      const htmlString = await fs.promises.readFile(
         path.resolve(this.FilePath),
         { encoding: 'utf-8' },
       );
 
-      if (!data) throw new Error('HTML file is empty. Please check the file and try again');
+      if (!htmlString) throw new Error('HTML file is empty. Please check the file and try again');
 
-      const inlineCssData = inline(data);
+      if (fs.existsSync(this.cssFilePath)) {
+        const cssString = await fs.promises.readFile(
+          path.resolve(this.cssFilePath),
+          { encoding: 'utf-8' },
+        );
 
-      // const singleLineData = inlineCssData.replace(/\n/g, '').replace(/\s\s+/g, ' ');
+        dataString = juice.inlineContent(htmlString, cssString);
+      } else {
+        signale.warn('CSS file not found');
 
-      console.log(inlineCssData);
+        dataString = juice(htmlString);
+      }
 
       signale.success('Convert to a string');
 
-      return inlineCssData;
+      return dataString;
     } catch (err) {
       return this.#stopWithError(err.message);
     }
@@ -138,13 +139,8 @@ class Cahe {
 
   async #minifyHtml() {
     try {
-      // const { result, log } = crush(
-      //   await this.#importHtmlAndConvertToString(),
-      //   this.#htmlCrushConfig,
-      // );
-
       const { result, log } = comb(
-        await this.#importHtmlAndConvertToString(),
+        await this.#addInlineCss(),
         this.#htmlCombConfig,
       );
 
@@ -205,6 +201,8 @@ class Cahe {
 
       archive.pipe(output);
       archive.append(htmlMinify, { name: this.newFileName });
+
+      fs.writeFileSync(path.join(this.dirPath, this.newFileName), htmlMinify);
 
       if (fs.existsSync(this.imagesDirPath)) {
         this.imageSrcList = this.#getImageSrcList(htmlMinify);
