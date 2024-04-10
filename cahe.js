@@ -22,7 +22,7 @@ class Cahe {
 
   #regexImageSrc = /src="(?!http:\/\/|https:\/\/)([^"]*)"/g;
 
-  #GATE_IMAGE_SIZE = 1;
+  #GATE_IMAGE_SIZE = 450;
 
   #COMPRESSION_RATIO = 8;
 
@@ -109,7 +109,7 @@ class Cahe {
 
       let dataString;
 
-      const htmlString = await fs.promises.readFile(
+      const htmlString = await fs.readFileSync(
         path.resolve(this.FilePath),
         { encoding: 'utf-8' },
       );
@@ -129,7 +129,7 @@ class Cahe {
         dataString = juice(htmlString);
       }
 
-      signale.success('Convert to a string');
+      signale.success('Inline CSS');
 
       return dataString;
     } catch (err) {
@@ -144,7 +144,7 @@ class Cahe {
         this.#htmlCombConfig,
       );
 
-      signale.success('Html-crush minify');
+      signale.success('Minify HTML');
 
       this.minifyHtmlLog = log;
 
@@ -191,6 +191,8 @@ class Cahe {
         signale.warn(`Image file ${imagePath} is missing`);
       }
     }
+
+    signale.success('Create image dir');
   }
 
   async archiveContent() {
@@ -246,7 +248,7 @@ if (
   if (process.env.PROXY) tinify.proxy = process.env.PROXY;
 
   new Cahe(htmlFilePath).archiveContent()
-    .then((data) => console.log(data));
+    // .then((data) => console.log(data));
 } else {
   signale.fatal(
     'The path to the HTML file is either incorrect or missing. Please verify the path and ensure it is correctly specified.',
