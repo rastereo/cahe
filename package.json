@@ -34,6 +34,7 @@
     "email-comb": "^7.0.21",
     "juice": "^10.0.0",
     "signale": "^1.4.0",
+    "string-strip-html": "^13.4.8",
     "tinify": "^1.7.1"
   }
 }

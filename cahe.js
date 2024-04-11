@@ -10,6 +10,7 @@ import clipboard from 'clipboardy'; // https://github.com/sindresorhus/clipboard
 import signale from 'signale'; // https://github.com/klaudiosinani/signale
 import tinify from 'tinify'; // https://tinypng.com/developers/reference/nodejs
 import juice from 'juice'; // https://github.com/Automattic/juice
+import { stripHtml } from 'string-strip-html'; // https://codsen.com/os/string-strip-html
 
 performance.mark('A');
 
@@ -48,6 +49,12 @@ class Cahe {
     reportProgressFuncTo: 100,
   };
 
+  #stripHtmlConfig = {
+    onlyStripTags: ['link'],
+    skipHtmlDecoding: true,
+    stripRecognisedHTMLOnly: true,
+  };
+
   constructor(htmlFilePath) {
     this.FilePath = htmlFilePath;
     this.dirPath = path.dirname(this.FilePath);
@@ -60,7 +67,6 @@ class Cahe {
 
   #stopWithError(errorMessage) {
     signale.fatal(errorMessage);
-
     process.exit(1);
   }
 
@@ -109,7 +115,7 @@ class Cahe {
 
       let dataString;
 
-      const htmlString = await fs.readFileSync(
+      const htmlString = fs.readFileSync(
         path.resolve(this.FilePath),
         { encoding: 'utf-8' },
       );
@@ -122,12 +128,14 @@ class Cahe {
           { encoding: 'utf-8' },
         );
 
-        dataString = juice.inlineContent(htmlString, cssString);
+        dataString = juice.inlineContent(htmlString, cssString, { resolveCSSVariables: true });
       } else {
         signale.warn('CSS file not found');
 
         dataString = juice(htmlString);
       }
+
+      dataString = stripHtml(dataString, this.#stripHtmlConfig).result;
 
       signale.success('Inline CSS');
 
@@ -248,7 +256,7 @@ if (
   if (process.env.PROXY) tinify.proxy = process.env.PROXY;
 
   new Cahe(htmlFilePath).archiveContent()
-    // .then((data) => console.log(data));
+    .then((data) => console.log(data));
 } else {
   signale.fatal(
     'The path to the HTML file is either incorrect or missing. Please verify the path and ensure it is correctly specified.',
