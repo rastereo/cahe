@@ -10,9 +10,6 @@ import clipboard from 'clipboardy'; // https://github.com/sindresorhus/clipboard
 import signale from 'signale'; // https://github.com/klaudiosinani/signale
 import tinify from 'tinify'; // https://tinypng.com/developers/reference/nodejs
 import juice from 'juice'; // https://github.com/Automattic/juice
-import { stripHtml } from 'string-strip-html'; // https://codsen.com/os/string-strip-html
-
-performance.mark('A');
 
 class Cahe {
   imagesSum = 0;
@@ -49,10 +46,9 @@ class Cahe {
     reportProgressFuncTo: 100,
   };
 
-  #stripHtmlConfig = {
-    onlyStripTags: ['link'],
-    skipHtmlDecoding: true,
-    stripRecognisedHTMLOnly: true,
+  #juiceConfig = {
+    preserveImportant: true,
+    resolveCSSVariables: true,
   };
 
   constructor(htmlFilePath) {
@@ -68,6 +64,12 @@ class Cahe {
   #stopWithError(errorMessage) {
     signale.fatal(errorMessage);
     process.exit(1);
+  }
+
+  #removeCssLinkTag(htmlString) {
+    this.cssLinkTag = `<link rel="stylesheet" href="${this.cssFileName}.css" />`;
+
+    return htmlString.replace(this.cssLinkTag, '');
   }
 
   #getImageSrcList(htmlString) {
@@ -113,14 +115,12 @@ class Cahe {
     try {
       this.htmlOriginalSize = fs.statSync(path.resolve(this.FilePath)).size;
 
-      let dataString;
-
-      const htmlString = fs.readFileSync(
+      let dataString = fs.readFileSync(
         path.resolve(this.FilePath),
         { encoding: 'utf-8' },
       );
 
-      if (!htmlString) throw new Error('HTML file is empty. Please check the file and try again');
+      if (!dataString) throw new Error('HTML file is empty. Please check the file and try again');
 
       if (fs.existsSync(this.cssFilePath)) {
         const cssString = await fs.promises.readFile(
@@ -128,14 +128,14 @@ class Cahe {
           { encoding: 'utf-8' },
         );
 
-        dataString = juice.inlineContent(htmlString, cssString, { resolveCSSVariables: true });
+        dataString = this.#removeCssLinkTag(dataString);
+
+        dataString = juice.inlineContent(dataString, cssString, this.#juiceConfig);
       } else {
         signale.warn('CSS file not found');
 
-        dataString = juice(htmlString);
+        dataString = juice(dataString, this.#juiceConfig);
       }
-
-      dataString = stripHtml(dataString, this.#stripHtmlConfig).result;
 
       signale.success('Inline CSS');
 
@@ -247,6 +247,8 @@ if (
   && path.extname(htmlFilePath) === '.html'
   && fs.existsSync(htmlFilePath)
 ) {
+  performance.mark('A');
+
   const dirname = path.dirname(fileURLToPath(import.meta.url));
 
   dotenv.config({ path: path.resolve(dirname, '.env') });
