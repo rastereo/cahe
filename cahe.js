@@ -4,23 +4,23 @@ import path from 'path';
 import { performance } from 'perf_hooks';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
-// import { crush } from 'html-crush'; // https://codsen.com/os/html-crush
 import { comb } from 'email-comb'; // https://codsen.com/os/email-comb
 import archiver from 'archiver'; // https://www.archiverjs.com/
 import clipboard from 'clipboardy'; // https://github.com/sindresorhus/clipboardy
 import signale from 'signale'; // https://github.com/klaudiosinani/signale
 import tinify from 'tinify'; // https://tinypng.com/developers/reference/nodejs
-
-performance.mark('A');
+import juice from 'juice'; // https://github.com/Automattic/juice
 
 class Cahe {
   imagesSum = 0;
 
   imageDirName = 'images';
 
+  cssFileName = 'style';
+
   #regexImageSrc = /src="(?!http:\/\/|https:\/\/)([^"]*)"/g;
 
-  #GATE_IMAGE_SIZE = 450;
+  #GATE_IMAGE_SIZE = 500;
 
   #COMPRESSION_RATIO = 8;
 
@@ -46,40 +46,39 @@ class Cahe {
     reportProgressFuncTo: 100,
   };
 
-  // #htmlCrushConfig = {
-  //   lineLengthLimit: 500,
-  //   removeIndentations: true,
-  //   removeLineBreaks: true,
-  //   removeHTMLComments: true,
-  //   removeCSSComments: true,
-  //   reportProgressFunc: null,
-  //   reportProgressFuncFrom: 0,
-  //   reportProgressFuncTo: 100,
-  // };
+  #juiceConfig = {
+    preserveImportant: true,
+    resolveCSSVariables: true,
+  };
 
   constructor(htmlFilePath) {
     this.FilePath = htmlFilePath;
     this.dirPath = path.dirname(this.FilePath);
     this.imagesDirPath = path.join(this.dirPath, this.imageDirName);
     this.fileName = path.basename(this.FilePath, '.html');
+    this.cssFilePath = path.join(this.dirPath, `${this.cssFileName}.css`);
     this.newFileName = `${this.fileName}.min.html`;
     this.outputArchiveFilePath = path.resolve(this.dirPath, `${this.fileName}.zip`);
   }
 
   #stopWithError(errorMessage) {
     signale.fatal(errorMessage);
-
     process.exit(1);
   }
 
+  #removeCssLinkTag(htmlString) {
+    this.cssLinkTag = `<link rel="stylesheet" href="${this.cssFileName}.css" />`;
+
+    return htmlString.replace(this.cssLinkTag, '');
+  }
+
   #getImageSrcList(htmlString) {
-    const matches = htmlString.matchAll(this.#regexImageSrc);
+    const matches = Array.from(htmlString.matchAll(this.#regexImageSrc));
     const srcList = [];
 
-    // eslint-disable-next-line no-restricted-syntax
-    for (const src of matches) {
+    matches.forEach((src) => {
       if (!srcList.includes(src[1])) srcList.push(src[1]);
-    }
+    });
 
     return srcList;
   }
@@ -111,39 +110,48 @@ class Cahe {
     performance.clearMeasures();
   }
 
-  async #importHtmlAndConvertToString() {
+  async #addInlineCss() {
     try {
       this.htmlOriginalSize = fs.statSync(path.resolve(this.FilePath)).size;
-      const data = await fs.promises.readFile(
+
+      let dataString = fs.readFileSync(
         path.resolve(this.FilePath),
         { encoding: 'utf-8' },
       );
 
-      if (!data) throw new Error('HTML file is empty. Please check the file and try again');
+      if (!dataString) throw new Error('HTML file is empty. Please check the file and try again');
 
-      const singleLineData = data.replace(/\n/g, '').replace(/\s\s+/g, ' ');
+      if (fs.existsSync(this.cssFilePath)) {
+        const cssString = await fs.promises.readFile(
+          path.resolve(this.cssFilePath),
+          { encoding: 'utf-8' },
+        );
 
-      signale.success('Convert to a string');
+        dataString = this.#removeCssLinkTag(dataString);
 
-      return singleLineData;
-    } catch (err) {
-      return this.#stopWithError(err.message);
+        dataString = juice.inlineContent(dataString, cssString, this.#juiceConfig);
+      } else {
+        signale.warn('CSS file not found');
+
+        dataString = juice(dataString, this.#juiceConfig);
+      }
+
+      signale.success('Inline CSS');
+
+      return dataString;
+    } catch (error) {
+      return this.#stopWithError(error);
     }
   }
 
   async #minifyHtml() {
     try {
-      // const { result, log } = crush(
-      //   await this.#importHtmlAndConvertToString(),
-      //   this.#htmlCrushConfig,
-      // );
-
       const { result, log } = comb(
-        await this.#importHtmlAndConvertToString(),
+        await this.#addInlineCss(),
         this.#htmlCombConfig,
       );
 
-      signale.success('Html-crush minify');
+      signale.success('Minify HTML');
 
       this.minifyHtmlLog = log;
 
@@ -180,7 +188,9 @@ class Cahe {
           && fs.statSync(imagePath).size / 1e3 >= this.#GATE_IMAGE_SIZE
         ) {
           // eslint-disable-next-line no-await-in-loop
-          archive.append(await this.#compressImage(imagePath), { name });
+          const compressedImage = await this.#compressImage(imagePath);
+
+          archive.append(compressedImage, { name });
         } else {
           archive.file(imagePath, { name });
         }
@@ -190,6 +200,8 @@ class Cahe {
         signale.warn(`Image file ${imagePath} is missing`);
       }
     }
+
+    signale.success('Create image dir');
   }
 
   async archiveContent() {
@@ -200,6 +212,8 @@ class Cahe {
 
       archive.pipe(output);
       archive.append(htmlMinify, { name: this.newFileName });
+
+      fs.writeFileSync(path.join(this.dirPath, this.newFileName), htmlMinify);
 
       if (fs.existsSync(this.imagesDirPath)) {
         this.imageSrcList = this.#getImageSrcList(htmlMinify);
@@ -231,9 +245,11 @@ const htmlFilePath = process.argv[2];
 
 if (
   htmlFilePath
-  && path.extname(htmlFilePath) === '.html'
+  && path.extname(htmlFilePath.toLowerCase()) === '.html'
   && fs.existsSync(htmlFilePath)
 ) {
+  performance.mark('A');
+
   const dirname = path.dirname(fileURLToPath(import.meta.url));
 
   dotenv.config({ path: path.resolve(dirname, '.env') });
@@ -242,8 +258,7 @@ if (
 
   if (process.env.PROXY) tinify.proxy = process.env.PROXY;
 
-  new Cahe(htmlFilePath).archiveContent()
-    .then((data) => console.log(data));
+  new Cahe(htmlFilePath).archiveContent();
 } else {
   signale.fatal(
     'The path to the HTML file is either incorrect or missing. Please verify the path and ensure it is correctly specified.',
