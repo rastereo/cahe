@@ -20,7 +20,7 @@ class Cahe {
 
   #regexImageSrc = /src="(?!http:\/\/|https:\/\/)([^"]*)"/g;
 
-  #GATE_IMAGE_SIZE = 450;
+  #GATE_IMAGE_SIZE = 500;
 
   #COMPRESSION_RATIO = 8;
 
@@ -73,13 +73,12 @@ class Cahe {
   }
 
   #getImageSrcList(htmlString) {
-    const matches = htmlString.matchAll(this.#regexImageSrc);
+    const matches = Array.from(htmlString.matchAll(this.#regexImageSrc));
     const srcList = [];
 
-    // eslint-disable-next-line no-restricted-syntax
-    for (const src of matches) {
+    matches.forEach((src) => {
       if (!srcList.includes(src[1])) srcList.push(src[1]);
-    }
+    });
 
     return srcList;
   }
@@ -140,8 +139,8 @@ class Cahe {
       signale.success('Inline CSS');
 
       return dataString;
-    } catch (err) {
-      return this.#stopWithError(err.message);
+    } catch (error) {
+      return this.#stopWithError(error);
     }
   }
 
@@ -189,7 +188,9 @@ class Cahe {
           && fs.statSync(imagePath).size / 1e3 >= this.#GATE_IMAGE_SIZE
         ) {
           // eslint-disable-next-line no-await-in-loop
-          archive.append(await this.#compressImage(imagePath), { name });
+          const compressedImage = await this.#compressImage(imagePath);
+
+          archive.append(compressedImage, { name });
         } else {
           archive.file(imagePath, { name });
         }
@@ -244,7 +245,7 @@ const htmlFilePath = process.argv[2];
 
 if (
   htmlFilePath
-  && path.extname(htmlFilePath) === '.html'
+  && path.extname(htmlFilePath.toLowerCase()) === '.html'
   && fs.existsSync(htmlFilePath)
 ) {
   performance.mark('A');
@@ -257,8 +258,7 @@ if (
 
   if (process.env.PROXY) tinify.proxy = process.env.PROXY;
 
-  new Cahe(htmlFilePath).archiveContent()
-    .then((data) => console.log(data));
+  new Cahe(htmlFilePath).archiveContent();
 } else {
   signale.fatal(
     'The path to the HTML file is either incorrect or missing. Please verify the path and ensure it is correctly specified.',
