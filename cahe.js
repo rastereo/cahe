@@ -10,6 +10,8 @@ import clipboard from 'clipboardy'; // https://github.com/sindresorhus/clipboard
 import signale from 'signale'; // https://github.com/klaudiosinani/signale
 import tinify from 'tinify'; // https://tinypng.com/developers/reference/nodejs
 import juice from 'juice'; // https://github.com/Automattic/juice
+import sizeOf from 'image-size';
+import sharp from 'sharp'; // https://sharp.pixelplumbing.com/
 
 class Cahe {
   imagesSum = 0;
@@ -59,6 +61,10 @@ class Cahe {
     this.cssFilePath = path.join(this.dirPath, `${this.cssFileName}.css`);
     this.newFileName = `${this.fileName}.min.html`;
     this.outputArchiveFilePath = path.resolve(this.dirPath, `${this.fileName}.zip`);
+    this.htmlString = this.FilePath && fs.readFileSync(
+      path.resolve(this.FilePath),
+      { encoding: 'utf-8' },
+    );
   }
 
   #stopWithError(errorMessage) {
@@ -77,7 +83,9 @@ class Cahe {
     const srcList = [];
 
     matches.forEach((src) => {
-      if (!srcList.includes(src[1])) srcList.push(src[1]);
+      const imagePath = src[1].replace('./', '');
+
+      if (!srcList.includes(imagePath)) srcList.push(imagePath);
     });
 
     return srcList;
@@ -97,8 +105,6 @@ class Cahe {
     signale.info(`Path: ${this.outputArchiveFilePath}`);
     signale.info('Archive path copied to clipboard.');
 
-    clipboard.writeSync(this.outputArchiveFilePath);
-
     performance.mark('B');
     performance.measure('A to B', 'A', 'B');
 
@@ -110,16 +116,13 @@ class Cahe {
     performance.clearMeasures();
   }
 
-  async #addInlineCss() {
+  async #addInlineCss(htmlString) {
     try {
+      if (!htmlString) throw new Error('HTML file is empty. Please check the file and try again');
+
       this.htmlOriginalSize = fs.statSync(path.resolve(this.FilePath)).size;
 
-      let dataString = fs.readFileSync(
-        path.resolve(this.FilePath),
-        { encoding: 'utf-8' },
-      );
-
-      if (!dataString) throw new Error('HTML file is empty. Please check the file and try again');
+      let result = htmlString;
 
       if (fs.existsSync(this.cssFilePath)) {
         const cssString = await fs.promises.readFile(
@@ -127,27 +130,27 @@ class Cahe {
           { encoding: 'utf-8' },
         );
 
-        dataString = this.#removeCssLinkTag(dataString);
+        result = this.#removeCssLinkTag(result);
 
-        dataString = juice.inlineContent(dataString, cssString, this.#juiceConfig);
+        result = juice.inlineContent(result, cssString, this.#juiceConfig);
       } else {
         signale.warn('CSS file not found');
 
-        dataString = juice(dataString, this.#juiceConfig);
+        result = juice(result, this.#juiceConfig);
       }
 
       signale.success('Inline CSS');
 
-      return dataString;
+      return result;
     } catch (error) {
       return this.#stopWithError(error);
     }
   }
 
-  async #minifyHtml() {
+  async #minifyHtml(htmlString) {
     try {
       const { result, log } = comb(
-        await this.#addInlineCss(),
+        htmlString,
         this.#htmlCombConfig,
       );
 
@@ -161,6 +164,23 @@ class Cahe {
     }
   }
 
+  async #convertImage(imagePath) {
+    try {
+      const convertedImage = await sharp(imagePath)
+        .toFormat('png', { compressionLevel: 0, palette: true, progressive: true })
+        .sharpen()
+        .toBuffer();
+
+      signale.success(`Image ${path.basename(imagePath)} converted`);
+
+      return convertedImage;
+    } catch (error) {
+      this.#stopWithError(error);
+    }
+
+    return null;
+  }
+
   async #compressImage(imagePath) {
     try {
       const compressedImage = await tinify.fromFile(imagePath).toBuffer(imagePath);
@@ -169,7 +189,7 @@ class Cahe {
 
       return compressedImage;
     } catch (error) {
-      signale.error(`Tinify ${error}`);
+      this.#stopWithError(error);
     }
 
     return null;
@@ -185,12 +205,22 @@ class Cahe {
 
         if (
           path.extname(imagePath) !== '.gif'
+          && path.extname(imagePath) !== '.svg'
           && fs.statSync(imagePath).size / 1e3 >= this.#GATE_IMAGE_SIZE
         ) {
           // eslint-disable-next-line no-await-in-loop
           const compressedImage = await this.#compressImage(imagePath);
 
           archive.append(compressedImage, { name });
+        } else if (path.extname(imagePath) === '.svg') {
+          // eslint-disable-next-line no-await-in-loop
+          const convertedImage = await this.#convertImage(imagePath);
+
+          const newName = `${this.imageDirName}/${path.basename(name, path.extname(name))}.png`;
+
+          this.htmlString = this.htmlString.replace(new RegExp(name, 'g'), newName);
+
+          archive.append(convertedImage, { name: newName });
         } else {
           archive.file(imagePath, { name });
         }
@@ -208,20 +238,23 @@ class Cahe {
     try {
       const archive = archiver('zip', { zlib: { level: this.#COMPRESSION_RATIO } });
       const output = createWriteStream(this.outputArchiveFilePath);
-      const htmlMinify = await this.#minifyHtml();
 
       archive.pipe(output);
-      archive.append(htmlMinify, { name: this.newFileName });
-
-      fs.writeFileSync(path.join(this.dirPath, this.newFileName), htmlMinify);
 
       if (fs.existsSync(this.imagesDirPath)) {
-        this.imageSrcList = this.#getImageSrcList(htmlMinify);
+        this.imageSrcList = this.#getImageSrcList(this.htmlString);
 
         await this.#createImageDir(archive);
       } else {
         signale.warn('Images directory is missing');
       }
+
+      this.htmlString = await this.#addInlineCss(this.htmlString);
+      this.htmlString = await this.#minifyHtml(this.htmlString);
+
+      archive.append(this.htmlString, { name: this.newFileName });
+
+      fs.writeFileSync(path.join(this.dirPath, this.newFileName), this.htmlString);
 
       output.on('finish', () => this.#createProcessLog(this.archiveSize));
       output.on('error', (error) => this.#stopWithError(error.message));
@@ -233,6 +266,8 @@ class Cahe {
       signale.success('Create archive');
 
       this.archiveSize = archive.pointer();
+
+      clipboard.writeSync(this.outputArchiveFilePath);
 
       return this;
     } catch (error) {
