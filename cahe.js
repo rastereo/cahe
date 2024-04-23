@@ -2,15 +2,15 @@
 import fs, { createWriteStream } from 'fs';
 import path from 'path';
 import { performance } from 'perf_hooks';
-import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
+import dotenv from 'dotenv'; // https://github.com/motdotla/dotenv
+// eslint-disable-next-line import/no-unresolved
 import { comb } from 'email-comb'; // https://codsen.com/os/email-comb
 import archiver from 'archiver'; // https://www.archiverjs.com/
 import clipboard from 'clipboardy'; // https://github.com/sindresorhus/clipboardy
 import signale from 'signale'; // https://github.com/klaudiosinani/signale
 import tinify from 'tinify'; // https://tinypng.com/developers/reference/nodejs
 import juice from 'juice'; // https://github.com/Automattic/juice
-import sizeOf from 'image-size';
 import sharp from 'sharp'; // https://sharp.pixelplumbing.com/
 
 class Cahe {
@@ -51,6 +51,15 @@ class Cahe {
   #juiceConfig = {
     preserveImportant: true,
     resolveCSSVariables: true,
+  };
+
+  #imageWidthList = {
+    banner: 700,
+    image: 560,
+    block: 260,
+    logo: 200,
+    contact: 185,
+    // soc: 32,
   };
 
   constructor(htmlFilePath) {
@@ -164,6 +173,22 @@ class Cahe {
     }
   }
 
+  async #resizeImage(imagePath, width) {
+    try {
+      const resizeImage = await sharp(imagePath)
+        .resize({ width })
+        .toBuffer();
+
+      signale.success(`Image ${path.basename(imagePath)} resized`);
+
+      return resizeImage;
+    } catch (error) {
+      this.#stopWithError(error);
+    }
+
+    return null;
+  }
+
   async #convertImage(imagePath) {
     try {
       const convertedImage = await sharp(imagePath)
@@ -201,28 +226,36 @@ class Cahe {
       const imagePath = path.join(this.dirPath, src);
 
       if (path.dirname(src) === this.imageDirName && fs.existsSync(imagePath)) {
-        const name = `${this.imageDirName}/${path.basename(imagePath)}`;
+        // eslint-disable-next-line no-await-in-loop
+        const { width, format } = await sharp(imagePath).metadata();
 
-        if (
-          path.extname(imagePath) !== '.gif'
-          && path.extname(imagePath) !== '.svg'
+        const gateWidth = this.#imageWidthList[path.basename(src, path.extname(src)).split('_')[0]];
+
+        if (gateWidth && gateWidth !== width) {
+          // eslint-disable-next-line no-await-in-loop
+          const resizedImage = await this.#resizeImage(imagePath, gateWidth);
+
+          archive.append(resizedImage, { name: src });
+        } else if (
+          format !== 'gif'
+          && format !== 'svg'
           && fs.statSync(imagePath).size / 1e3 >= this.#GATE_IMAGE_SIZE
         ) {
           // eslint-disable-next-line no-await-in-loop
           const compressedImage = await this.#compressImage(imagePath);
 
-          archive.append(compressedImage, { name });
-        } else if (path.extname(imagePath) === '.svg') {
+          archive.append(compressedImage, { name: src });
+        } else if (format === 'svg') {
           // eslint-disable-next-line no-await-in-loop
           const convertedImage = await this.#convertImage(imagePath);
 
-          const newName = `${this.imageDirName}/${path.basename(name, path.extname(name))}.png`;
+          const newName = `${this.imageDirName}/${path.basename(src, path.extname(src))}.png`;
 
-          this.htmlString = this.htmlString.replace(new RegExp(name, 'g'), newName);
+          this.htmlString = this.htmlString.replace(new RegExp(src, 'g'), newName);
 
           archive.append(convertedImage, { name: newName });
         } else {
-          archive.file(imagePath, { name });
+          archive.file(imagePath, { name: src });
         }
 
         this.imagesSum += 1;
