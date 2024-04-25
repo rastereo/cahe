@@ -2,14 +2,16 @@
 import fs, { createWriteStream } from 'fs';
 import path from 'path';
 import { performance } from 'perf_hooks';
-import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
+import dotenv from 'dotenv'; // https://github.com/motdotla/dotenv
+// eslint-disable-next-line import/no-unresolved
 import { comb } from 'email-comb'; // https://codsen.com/os/email-comb
 import archiver from 'archiver'; // https://www.archiverjs.com/
 import clipboard from 'clipboardy'; // https://github.com/sindresorhus/clipboardy
 import signale from 'signale'; // https://github.com/klaudiosinani/signale
 import tinify from 'tinify'; // https://tinypng.com/developers/reference/nodejs
 import juice from 'juice'; // https://github.com/Automattic/juice
+import sharp from 'sharp'; // https://sharp.pixelplumbing.com/
 
 class Cahe {
   imagesSum = 0;
@@ -51,6 +53,15 @@ class Cahe {
     resolveCSSVariables: true,
   };
 
+  #imageWidthList = {
+    banner: 700,
+    image: 560,
+    block: 260,
+    logo: 200,
+    contact: 185,
+    // soc: 32,
+  };
+
   constructor(htmlFilePath) {
     this.FilePath = htmlFilePath;
     this.dirPath = path.dirname(this.FilePath);
@@ -59,11 +70,62 @@ class Cahe {
     this.cssFilePath = path.join(this.dirPath, `${this.cssFileName}.css`);
     this.newFileName = `${this.fileName}.min.html`;
     this.outputArchiveFilePath = path.resolve(this.dirPath, `${this.fileName}.zip`);
+    this.htmlString = this.FilePath && fs.readFileSync(
+      path.resolve(this.FilePath),
+      { encoding: 'utf-8' },
+    );
   }
 
-  #stopWithError(errorMessage) {
+  static #stopWithError(errorMessage) {
     signale.fatal(errorMessage);
     process.exit(1);
+  }
+
+  static async #resizeImage(imagePath, width) {
+    try {
+      const resizeImage = await sharp(imagePath)
+        .resize({ width })
+        .toBuffer();
+
+      signale.success(`Image ${path.basename(imagePath)} resized`);
+
+      return resizeImage;
+    } catch (error) {
+      Cahe.#stopWithError(error);
+    }
+
+    return null;
+  }
+
+  static async #convertImage(imagePath) {
+    try {
+      const convertedImage = await sharp(imagePath)
+        .toFormat('png', { compressionLevel: 0, palette: true, progressive: true })
+        .sharpen()
+        .toBuffer();
+
+      signale.success(`Image ${path.basename(imagePath)} converted`);
+
+      return convertedImage;
+    } catch (error) {
+      Cahe.#stopWithError(error);
+    }
+
+    return null;
+  }
+
+  static async #compressImage(imagePath) {
+    try {
+      const compressedImage = await tinify.fromFile(imagePath).toBuffer(imagePath);
+
+      signale.success(`Image ${path.basename(imagePath)} compressed`);
+
+      return compressedImage;
+    } catch (error) {
+      Cahe.#stopWithError(error);
+    }
+
+    return null;
   }
 
   #removeCssLinkTag(htmlString) {
@@ -77,7 +139,9 @@ class Cahe {
     const srcList = [];
 
     matches.forEach((src) => {
-      if (!srcList.includes(src[1])) srcList.push(src[1]);
+      const imagePath = src[1].replace('./', '');
+
+      if (!srcList.includes(imagePath)) srcList.push(imagePath);
     });
 
     return srcList;
@@ -97,8 +161,6 @@ class Cahe {
     signale.info(`Path: ${this.outputArchiveFilePath}`);
     signale.info('Archive path copied to clipboard.');
 
-    clipboard.writeSync(this.outputArchiveFilePath);
-
     performance.mark('B');
     performance.measure('A to B', 'A', 'B');
 
@@ -110,16 +172,13 @@ class Cahe {
     performance.clearMeasures();
   }
 
-  async #addInlineCss() {
+  async #addInlineCss(htmlString) {
     try {
+      if (!htmlString) throw new Error('HTML file is empty. Please check the file and try again');
+
       this.htmlOriginalSize = fs.statSync(path.resolve(this.FilePath)).size;
 
-      let dataString = fs.readFileSync(
-        path.resolve(this.FilePath),
-        { encoding: 'utf-8' },
-      );
-
-      if (!dataString) throw new Error('HTML file is empty. Please check the file and try again');
+      let result = htmlString;
 
       if (fs.existsSync(this.cssFilePath)) {
         const cssString = await fs.promises.readFile(
@@ -127,27 +186,27 @@ class Cahe {
           { encoding: 'utf-8' },
         );
 
-        dataString = this.#removeCssLinkTag(dataString);
+        result = this.#removeCssLinkTag(result);
 
-        dataString = juice.inlineContent(dataString, cssString, this.#juiceConfig);
+        result = juice.inlineContent(result, cssString, this.#juiceConfig);
       } else {
         signale.warn('CSS file not found');
 
-        dataString = juice(dataString, this.#juiceConfig);
+        result = juice(result, this.#juiceConfig);
       }
 
       signale.success('Inline CSS');
 
-      return dataString;
+      return result;
     } catch (error) {
-      return this.#stopWithError(error);
+      return Cahe.#stopWithError(error);
     }
   }
 
-  async #minifyHtml() {
+  async #minifyHtml(htmlString) {
     try {
       const { result, log } = comb(
-        await this.#addInlineCss(),
+        htmlString,
         this.#htmlCombConfig,
       );
 
@@ -157,76 +216,84 @@ class Cahe {
 
       return result;
     } catch (error) {
-      return this.#stopWithError(error.message);
+      return Cahe.#stopWithError(error);
     }
-  }
-
-  async #compressImage(imagePath) {
-    try {
-      const compressedImage = await tinify.fromFile(imagePath).toBuffer(imagePath);
-
-      signale.success(`Image ${path.basename(imagePath)} compressed`);
-
-      return compressedImage;
-    } catch (error) {
-      signale.error(`Tinify ${error}`);
-    }
-
-    return null;
   }
 
   async #createImageDir(archive) {
-    // eslint-disable-next-line no-restricted-syntax
-    for (const src of this.imageSrcList) {
-      const imagePath = path.join(this.dirPath, src);
+    try {
+      const tasks = this.imageSrcList.map(async (src) => {
+        const imagePath = path.join(this.dirPath, src);
 
-      if (path.dirname(src) === this.imageDirName && fs.existsSync(imagePath)) {
-        const name = `${this.imageDirName}/${path.basename(imagePath)}`;
+        if (path.dirname(src) === this.imageDirName && fs.existsSync(imagePath)) {
+          const { width, format } = await sharp(imagePath).metadata();
 
-        if (
-          path.extname(imagePath) !== '.gif'
-          && fs.statSync(imagePath).size / 1e3 >= this.#GATE_IMAGE_SIZE
-        ) {
-          // eslint-disable-next-line no-await-in-loop
-          const compressedImage = await this.#compressImage(imagePath);
+          const gateWidth = this.#imageWidthList[path.basename(src, path.extname(src)).split('_')[0]];
 
-          archive.append(compressedImage, { name });
+          if (gateWidth && gateWidth !== width) {
+            const resizedImage = await Cahe.#resizeImage(imagePath, gateWidth);
+
+            archive.append(resizedImage, { name: src });
+          } else if (
+            format !== 'gif'
+            && format !== 'svg'
+            && fs.statSync(imagePath).size / 1e3 >= this.#GATE_IMAGE_SIZE
+          ) {
+            const compressedImage = await Cahe.#compressImage(imagePath);
+
+            archive.append(compressedImage, { name: src });
+          } else if (format === 'svg') {
+            const convertedImage = await Cahe.#convertImage(imagePath);
+
+            const newName = `${this.imageDirName}/${path.basename(src, path.extname(src))}.png`;
+
+            this.htmlString = this.htmlString.replace(new RegExp(src, 'g'), newName);
+
+            archive.append(convertedImage, { name: newName });
+          } else {
+            archive.file(imagePath, { name: src });
+          }
+
+          this.imagesSum += 1;
         } else {
-          archive.file(imagePath, { name });
+          signale.warn(`Image file ${imagePath} is missing`);
         }
+      });
 
-        this.imagesSum += 1;
-      } else {
-        signale.warn(`Image file ${imagePath} is missing`);
-      }
+      await Promise.all(tasks);
+
+      signale.success('Create image dir');
+    } catch (error) {
+      Cahe.#stopWithError(error);
     }
-
-    signale.success('Create image dir');
   }
 
   async archiveContent() {
     try {
       const archive = archiver('zip', { zlib: { level: this.#COMPRESSION_RATIO } });
       const output = createWriteStream(this.outputArchiveFilePath);
-      const htmlMinify = await this.#minifyHtml();
 
       archive.pipe(output);
-      archive.append(htmlMinify, { name: this.newFileName });
-
-      fs.writeFileSync(path.join(this.dirPath, this.newFileName), htmlMinify);
 
       if (fs.existsSync(this.imagesDirPath)) {
-        this.imageSrcList = this.#getImageSrcList(htmlMinify);
+        this.imageSrcList = this.#getImageSrcList(this.htmlString);
 
         await this.#createImageDir(archive);
       } else {
         signale.warn('Images directory is missing');
       }
 
-      output.on('finish', () => this.#createProcessLog(this.archiveSize));
-      output.on('error', (error) => this.#stopWithError(error.message));
+      this.htmlString = await this.#addInlineCss(this.htmlString);
+      this.htmlString = await this.#minifyHtml(this.htmlString);
 
-      archive.on('error', (error) => this.#stopWithError(error.message));
+      archive.append(this.htmlString, { name: this.newFileName });
+
+      fs.writeFileSync(path.join(this.dirPath, this.newFileName), this.htmlString);
+
+      output.on('finish', () => this.#createProcessLog(this.archiveSize));
+      output.on('error', (error) => Cahe.#stopWithError(error.message));
+
+      archive.on('error', (error) => Cahe.#stopWithError(error.message));
 
       await archive.finalize();
 
@@ -234,9 +301,11 @@ class Cahe {
 
       this.archiveSize = archive.pointer();
 
+      clipboard.writeSync(this.outputArchiveFilePath);
+
       return this;
     } catch (error) {
-      return this.#stopWithError(error);
+      return Cahe.#stopWithError(error);
     }
   }
 }
