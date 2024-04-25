@@ -76,9 +76,56 @@ class Cahe {
     );
   }
 
-  #stopWithError(errorMessage) {
+  static #stopWithError(errorMessage) {
     signale.fatal(errorMessage);
     process.exit(1);
+  }
+
+  static async #resizeImage(imagePath, width) {
+    try {
+      const resizeImage = await sharp(imagePath)
+        .resize({ width })
+        .toBuffer();
+
+      signale.success(`Image ${path.basename(imagePath)} resized`);
+
+      return resizeImage;
+    } catch (error) {
+      Cahe.#stopWithError(error);
+    }
+
+    return null;
+  }
+
+  static async #convertImage(imagePath) {
+    try {
+      const convertedImage = await sharp(imagePath)
+        .toFormat('png', { compressionLevel: 0, palette: true, progressive: true })
+        .sharpen()
+        .toBuffer();
+
+      signale.success(`Image ${path.basename(imagePath)} converted`);
+
+      return convertedImage;
+    } catch (error) {
+      Cahe.#stopWithError(error);
+    }
+
+    return null;
+  }
+
+  static async #compressImage(imagePath) {
+    try {
+      const compressedImage = await tinify.fromFile(imagePath).toBuffer(imagePath);
+
+      signale.success(`Image ${path.basename(imagePath)} compressed`);
+
+      return compressedImage;
+    } catch (error) {
+      Cahe.#stopWithError(error);
+    }
+
+    return null;
   }
 
   #removeCssLinkTag(htmlString) {
@@ -152,7 +199,7 @@ class Cahe {
 
       return result;
     } catch (error) {
-      return this.#stopWithError(error);
+      return Cahe.#stopWithError(error);
     }
   }
 
@@ -169,102 +216,56 @@ class Cahe {
 
       return result;
     } catch (error) {
-      return this.#stopWithError(error.message);
+      return Cahe.#stopWithError(error);
     }
-  }
-
-  async #resizeImage(imagePath, width) {
-    try {
-      const resizeImage = await sharp(imagePath)
-        .resize({ width })
-        .toBuffer();
-
-      signale.success(`Image ${path.basename(imagePath)} resized`);
-
-      return resizeImage;
-    } catch (error) {
-      this.#stopWithError(error);
-    }
-
-    return null;
-  }
-
-  async #convertImage(imagePath) {
-    try {
-      const convertedImage = await sharp(imagePath)
-        .toFormat('png', { compressionLevel: 0, palette: true, progressive: true })
-        .sharpen()
-        .toBuffer();
-
-      signale.success(`Image ${path.basename(imagePath)} converted`);
-
-      return convertedImage;
-    } catch (error) {
-      this.#stopWithError(error);
-    }
-
-    return null;
-  }
-
-  async #compressImage(imagePath) {
-    try {
-      const compressedImage = await tinify.fromFile(imagePath).toBuffer(imagePath);
-
-      signale.success(`Image ${path.basename(imagePath)} compressed`);
-
-      return compressedImage;
-    } catch (error) {
-      this.#stopWithError(error);
-    }
-
-    return null;
   }
 
   async #createImageDir(archive) {
-    // eslint-disable-next-line no-restricted-syntax
-    for (const src of this.imageSrcList) {
-      const imagePath = path.join(this.dirPath, src);
+    try {
+      const tasks = this.imageSrcList.map(async (src) => {
+        const imagePath = path.join(this.dirPath, src);
 
-      if (path.dirname(src) === this.imageDirName && fs.existsSync(imagePath)) {
-        // eslint-disable-next-line no-await-in-loop
-        const { width, format } = await sharp(imagePath).metadata();
+        if (path.dirname(src) === this.imageDirName && fs.existsSync(imagePath)) {
+          const { width, format } = await sharp(imagePath).metadata();
 
-        const gateWidth = this.#imageWidthList[path.basename(src, path.extname(src)).split('_')[0]];
+          const gateWidth = this.#imageWidthList[path.basename(src, path.extname(src)).split('_')[0]];
 
-        if (gateWidth && gateWidth !== width) {
-          // eslint-disable-next-line no-await-in-loop
-          const resizedImage = await this.#resizeImage(imagePath, gateWidth);
+          if (gateWidth && gateWidth !== width) {
+            const resizedImage = await Cahe.#resizeImage(imagePath, gateWidth);
 
-          archive.append(resizedImage, { name: src });
-        } else if (
-          format !== 'gif'
-          && format !== 'svg'
-          && fs.statSync(imagePath).size / 1e3 >= this.#GATE_IMAGE_SIZE
-        ) {
-          // eslint-disable-next-line no-await-in-loop
-          const compressedImage = await this.#compressImage(imagePath);
+            archive.append(resizedImage, { name: src });
+          } else if (
+            format !== 'gif'
+            && format !== 'svg'
+            && fs.statSync(imagePath).size / 1e3 >= this.#GATE_IMAGE_SIZE
+          ) {
+            const compressedImage = await Cahe.#compressImage(imagePath);
 
-          archive.append(compressedImage, { name: src });
-        } else if (format === 'svg') {
-          // eslint-disable-next-line no-await-in-loop
-          const convertedImage = await this.#convertImage(imagePath);
+            archive.append(compressedImage, { name: src });
+          } else if (format === 'svg') {
+            const convertedImage = await Cahe.#convertImage(imagePath);
 
-          const newName = `${this.imageDirName}/${path.basename(src, path.extname(src))}.png`;
+            const newName = `${this.imageDirName}/${path.basename(src, path.extname(src))}.png`;
 
-          this.htmlString = this.htmlString.replace(new RegExp(src, 'g'), newName);
+            this.htmlString = this.htmlString.replace(new RegExp(src, 'g'), newName);
 
-          archive.append(convertedImage, { name: newName });
+            archive.append(convertedImage, { name: newName });
+          } else {
+            archive.file(imagePath, { name: src });
+          }
+
+          this.imagesSum += 1;
         } else {
-          archive.file(imagePath, { name: src });
+          signale.warn(`Image file ${imagePath} is missing`);
         }
+      });
 
-        this.imagesSum += 1;
-      } else {
-        signale.warn(`Image file ${imagePath} is missing`);
-      }
+      await Promise.all(tasks);
+
+      signale.success('Create image dir');
+    } catch (error) {
+      Cahe.#stopWithError(error);
     }
-
-    signale.success('Create image dir');
   }
 
   async archiveContent() {
@@ -290,9 +291,9 @@ class Cahe {
       fs.writeFileSync(path.join(this.dirPath, this.newFileName), this.htmlString);
 
       output.on('finish', () => this.#createProcessLog(this.archiveSize));
-      output.on('error', (error) => this.#stopWithError(error.message));
+      output.on('error', (error) => Cahe.#stopWithError(error.message));
 
-      archive.on('error', (error) => this.#stopWithError(error.message));
+      archive.on('error', (error) => Cahe.#stopWithError(error.message));
 
       await archive.finalize();
 
@@ -304,7 +305,7 @@ class Cahe {
 
       return this;
     } catch (error) {
-      return this.#stopWithError(error);
+      return Cahe.#stopWithError(error);
     }
   }
 }
