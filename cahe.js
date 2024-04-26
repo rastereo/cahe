@@ -4,7 +4,6 @@ import path from 'path';
 import { performance } from 'perf_hooks';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv'; // https://github.com/motdotla/dotenv
-// eslint-disable-next-line import/no-unresolved
 import { comb } from 'email-comb'; // https://codsen.com/os/email-comb
 import archiver from 'archiver'; // https://www.archiverjs.com/
 import clipboard from 'clipboardy'; // https://github.com/sindresorhus/clipboardy
@@ -12,6 +11,7 @@ import signale from 'signale'; // https://github.com/klaudiosinani/signale
 import tinify from 'tinify'; // https://tinypng.com/developers/reference/nodejs
 import juice from 'juice'; // https://github.com/Automattic/juice
 import sharp from 'sharp'; // https://sharp.pixelplumbing.com/
+import extract from 'extract-zip'; // https://github.com/max-mapper/extract-zip
 
 class Cahe {
   imagesSum = 0;
@@ -19,6 +19,8 @@ class Cahe {
   imageDirName = 'images';
 
   cssFileName = 'style';
+
+  #extractDirName = 'build';
 
   #regexImageSrc = /src="(?!http:\/\/|https:\/\/)([^"]*)"/g;
 
@@ -59,7 +61,6 @@ class Cahe {
     block: 260,
     logo: 200,
     contact: 185,
-    // soc: 32,
   };
 
   constructor(htmlFilePath) {
@@ -230,7 +231,7 @@ class Cahe {
 
           const gateWidth = this.#imageWidthList[path.basename(src, path.extname(src)).split('_')[0]];
 
-          if (gateWidth && gateWidth !== width) {
+          if (gateWidth && width > gateWidth) {
             const resizedImage = await Cahe.#resizeImage(imagePath, gateWidth);
 
             archive.append(resizedImage, { name: src });
@@ -268,6 +269,17 @@ class Cahe {
     }
   }
 
+  async #extractArchive() {
+    try {
+      await extract(
+        this.outputArchiveFilePath,
+        { dir: path.join(this.dirPath, this.#extractDirName) },
+      );
+    } catch (error) {
+      Cahe.#stopWithError(error);
+    }
+  }
+
   async archiveContent() {
     try {
       const archive = archiver('zip', { zlib: { level: this.#COMPRESSION_RATIO } });
@@ -290,7 +302,15 @@ class Cahe {
 
       fs.writeFileSync(path.join(this.dirPath, this.newFileName), this.htmlString);
 
-      output.on('finish', () => this.#createProcessLog(this.archiveSize));
+      output.on('finish', () => {
+        if (process.argv[3] === '-e') {
+          this.#extractArchive();
+
+          signale.success(`Archive extract to ${this.#extractDirName} directory`);
+        }
+
+        this.#createProcessLog(this.archiveSize);
+      });
       output.on('error', (error) => Cahe.#stopWithError(error.message));
 
       archive.on('error', (error) => Cahe.#stopWithError(error.message));

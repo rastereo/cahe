@@ -15,6 +15,7 @@ Cahe (Create Archive HTML Email) — это простой инструмент 
 + [Tinify](https://tinypng.com/developers/reference/nodejs)
 + [Sharp](https://sharp.pixelplumbing.com/)
 + [Signale](https://github.com/klaudiosinani/signale)
++ [Extract-zip](https://github.com/max-mapper/extract-zip)
 + [Clipboardy](https://github.com/sindresorhus/clipboardy)
 + [Dotenv](https://github.com/motdotla/dotenv)
 + [ESLint](https://eslint.org/)
@@ -65,4 +66,10 @@ cahe "C:\path\to\your\file.html"
 cahe file.html
 ```
 
-Файл .zip создастся в директории, где находится HTML файл и путь к нему автоматически сохранится в буфер обмена.
+Файл .zip создастся в каталоге, где находится HTML файл и путь к нему автоматически сохранится в буфер обмена.
+
+Если нужно извлечь содержимое архива, укажите флаг **-e** после пути к HTML-файлу:
+```bash
+cahe file.html -e
+```
+Архива будет извлечен в каталог /build.
