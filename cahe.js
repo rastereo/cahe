@@ -273,8 +273,10 @@ class Cahe {
     try {
       await extract(
         this.outputArchiveFilePath,
-        { dir: path.join(this.dirPath, this.#extractDirName) },
+        { dir: path.join(path.dirname(this.outputArchiveFilePath), this.#extractDirName) },
       );
+
+      signale.success(`Archive extract to ${this.#extractDirName} directory`);
     } catch (error) {
       Cahe.#stopWithError(error);
     }
@@ -300,14 +302,8 @@ class Cahe {
 
       archive.append(this.htmlString, { name: this.newFileName });
 
-      fs.writeFileSync(path.join(this.dirPath, this.newFileName), this.htmlString);
-
-      output.on('finish', () => {
-        if (process.argv[3] === '-e') {
-          this.#extractArchive();
-
-          signale.success(`Archive extract to ${this.#extractDirName} directory`);
-        }
+      output.on('finish', async () => {
+        if (process.argv[3] === '-e') await this.#extractArchive();
 
         this.#createProcessLog(this.archiveSize);
       });
