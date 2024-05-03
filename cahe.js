@@ -3,7 +3,8 @@ import fs, { createWriteStream } from 'fs';
 import path from 'path';
 import { performance } from 'perf_hooks';
 import { fileURLToPath } from 'url';
-import dotenv from 'dotenv'; // https://github.com/motdotla/dotenv
+import dotenv, { config } from 'dotenv'; // https://github.com/motdotla/dotenv
+// eslint-disable-next-line import/no-unresolved
 import { comb } from 'email-comb'; // https://codsen.com/os/email-comb
 import archiver from 'archiver'; // https://www.archiverjs.com/
 import clipboard from 'clipboardy'; // https://github.com/sindresorhus/clipboardy
@@ -11,6 +12,9 @@ import signale from 'signale'; // https://github.com/klaudiosinani/signale
 import juice from 'juice'; // https://github.com/Automattic/juice
 import sharp from 'sharp'; // https://sharp.pixelplumbing.com/
 import extract from 'extract-zip'; // https://github.com/max-mapper/extract-zip
+import { NetlifyAPI } from 'netlify'; // https://github.com/netlify/build/tree/main/packages/js-client
+import { HttpProxyAgent } from 'http-proxy-agent'; // https://github.com/TooTallNate/proxy-agents
+import fetch from 'node-fetch';
 
 class Cahe {
   static #GATE_IMAGE_SIZE = 500;
@@ -79,6 +83,10 @@ class Cahe {
       path.resolve(this.FilePath),
       { encoding: 'utf-8' },
     );
+    this.emailConfig = JSON.parse(fs.readFileSync(
+      path.join(this.dirPath, 'config.json'),
+      { encoding: 'utf-8' },
+    ));
     this.htmlOriginalSize = Buffer.byteLength(this.htmlString);
     this.archiveContent = this.archiveContent.bind(this);
   }
@@ -179,6 +187,7 @@ class Cahe {
 
     signale.info(`Images: ${this.imagesSum}`);
     signale.info(`Total size: ${(archiveSize / 1e6).toFixed(2)} MB`);
+    signale.info(`Webletter: ${this.emailConfig.webletterUrl}`);
     signale.info(`Path: ${this.outputArchiveFilePath}`);
     signale.info('Archive path copied to clipboard.');
 
@@ -305,6 +314,43 @@ class Cahe {
     }
   }
 
+  async #createWebletter() {
+    try {
+      const { siteId } = this.emailConfig;
+      const dirname = path.dirname(fileURLToPath(import.meta.url));
+
+      dotenv.config({ path: path.resolve(dirname, '.env') });
+
+      const url = siteId
+        ? `https://api.netlify.com/api/v1/sites/${siteId}/deploys`
+        : 'https://api.netlify.com/api/v1/sites';
+
+      const headers = {
+        'Content-Type': 'application/zip',
+        // eslint-disable-next-line quote-props
+        'Authorization': `Bearer ${process.env.NETLIFY_KEY}`,
+      };
+
+      const stream = fs.createReadStream(this.outputArchiveFilePath);
+      const res = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: stream,
+      });
+
+      const result = await res.json();
+
+      this.emailConfig.siteId = result.id;
+      if (!siteId) this.emailConfig.webletterUrl = `https://${result.subdomain}.netlify.app`;
+
+      fs.writeFileSync(path.join(this.dirPath, 'config.json'), JSON.stringify(this.emailConfig, null, 2));
+
+      signale.success('Create webletter');
+    } catch (error) {
+      Cahe.#stopWithError(error);
+    }
+  }
+
   async archiveContent() {
     try {
       const archive = archiver('zip', { zlib: { level: Cahe.#COMPRESSION_RATIO } });
@@ -327,6 +373,7 @@ class Cahe {
 
       output.on('finish', async () => {
         if (process.argv[3] === '-e') await this.#extractArchive();
+        if (process.argv[3] === '-w') await this.#createWebletter();
 
         this.#createProcessLog(this.archiveSize);
       });
@@ -349,6 +396,8 @@ class Cahe {
   }
 }
 
+performance.mark('A');
+
 const htmlFilePath = process.argv[2];
 
 if (
@@ -356,13 +405,9 @@ if (
   && path.extname(htmlFilePath.toLowerCase()) === '.html'
   && fs.existsSync(htmlFilePath)
 ) {
-  performance.mark('A');
+  const client = new Cahe(htmlFilePath);
 
-  const dirname = path.dirname(fileURLToPath(import.meta.url));
-
-  dotenv.config({ path: path.resolve(dirname, '.env') });
-
-  new Cahe(htmlFilePath).archiveContent();
+  await client.archiveContent();
 } else {
   signale.fatal(
     'The path to the HTML file is either incorrect or missing. Please verify the path and ensure it is correctly specified.',

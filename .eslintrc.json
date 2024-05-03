@@ -8,9 +8,7 @@
     "ecmaVersion": "latest",
     "sourceType": "module"
   },
-  "rules": {
-    "import/no-unresolved": "off"
-  },
+  "rules": {},
   "settings": {
     "import/resolver": {
       "node": {
