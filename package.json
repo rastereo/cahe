@@ -34,7 +34,6 @@
     "extract-zip": "^2.0.1",
     "juice": "^10.0.0",
     "sharp": "^0.33.3",
-    "signale": "^1.4.0",
-    "tinify": "^1.7.1"
+    "signale": "^1.4.0"
   }
 }

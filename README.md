@@ -12,7 +12,6 @@ Cahe (Create Archive HTML Email) — это простой инструмент 
 + [Archiver](https://www.archiverjs.com/)
 + [Email-comb](https://codsen.com/os/email-comb)
 + [Juice](https://github.com/Automattic/juice)
-+ [Tinify](https://tinypng.com/developers/reference/nodejs)
 + [Sharp](https://sharp.pixelplumbing.com/)
 + [Signale](https://github.com/klaudiosinani/signale)
 + [Extract-zip](https://github.com/max-mapper/extract-zip)
@@ -39,19 +38,6 @@ npm install
 4. Сделайте файл cahe.js исполняемым:
 ```bash
 npm run init
-```
-
-Для работы с Tinify необходим API ключ:
-
-1. Зарегистрируйтесь на сайте [TinyPNG](https://tinypng.com/developers) и получите ключ.
-2. В корне директории создайте файл .env.
-3. В файле .env укажите ваш ключ:
-```env
-TINIFY_KEY=ваш_ключ_api
-```
-4. При необходимости можно также указать прокси:
-```env
-TINIFY_KEY=адрес_прокси
 ```
 
 ## 🤖Использование:
