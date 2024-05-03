@@ -8,25 +8,30 @@ import { comb } from 'email-comb'; // https://codsen.com/os/email-comb
 import archiver from 'archiver'; // https://www.archiverjs.com/
 import clipboard from 'clipboardy'; // https://github.com/sindresorhus/clipboardy
 import signale from 'signale'; // https://github.com/klaudiosinani/signale
-import tinify from 'tinify'; // https://tinypng.com/developers/reference/nodejs
 import juice from 'juice'; // https://github.com/Automattic/juice
 import sharp from 'sharp'; // https://sharp.pixelplumbing.com/
 import extract from 'extract-zip'; // https://github.com/max-mapper/extract-zip
 
 class Cahe {
+  static #GATE_IMAGE_SIZE = 500;
+
+  static #COMPRESSION_RATIO = 8;
+
+  static #BYTES_PER_KB = 1024;
+
+  static #STEP_IMAGE_QUALITY = 5;
+
   imagesSum = 0;
 
-  imageDirName = 'images';
+  #imageDirName = 'images';
 
-  cssFileName = 'style';
+  #cssFileName = 'style';
 
   #extractDirName = 'build';
 
   #regexImageSrc = /src="(?!http:\/\/|https:\/\/)([^"]*)"/g;
 
-  #GATE_IMAGE_SIZE = 500;
-
-  #COMPRESSION_RATIO = 8;
+  #cssLinkTag = `<link rel="stylesheet" href="${this.#cssFileName}.css" />`;
 
   #htmlCombConfig = {
     whitelist: [],
@@ -59,22 +64,23 @@ class Cahe {
     banner: 700,
     image: 560,
     block: 260,
-    logo: 200,
     contact: 185,
   };
 
   constructor(htmlFilePath) {
     this.FilePath = htmlFilePath;
     this.dirPath = path.dirname(this.FilePath);
-    this.imagesDirPath = path.join(this.dirPath, this.imageDirName);
+    this.imagesDirPath = path.join(this.dirPath, this.#imageDirName);
     this.fileName = path.basename(this.FilePath, '.html');
-    this.cssFilePath = path.join(this.dirPath, `${this.cssFileName}.css`);
-    this.newFileName = `${this.fileName}.min.html`;
+    this.cssFilePath = path.join(this.dirPath, `${this.#cssFileName}.css`);
+    this.newFileName = 'index.html';
     this.outputArchiveFilePath = path.resolve(this.dirPath, `${this.fileName}.zip`);
     this.htmlString = this.FilePath && fs.readFileSync(
       path.resolve(this.FilePath),
       { encoding: 'utf-8' },
     );
+    this.htmlOriginalSize = Buffer.byteLength(this.htmlString);
+    this.archiveContent = this.archiveContent.bind(this);
   }
 
   static #stopWithError(errorMessage) {
@@ -115,11 +121,27 @@ class Cahe {
     return null;
   }
 
-  static async #compressImage(imagePath) {
+  static async #compressImage(imageBuffer, name, quality = 100) {
     try {
-      const compressedImage = await tinify.fromFile(imagePath).toBuffer(imagePath);
+      const { format } = await sharp(imageBuffer).metadata();
 
-      signale.success(`Image ${path.basename(imagePath)} compressed`);
+      let compressedImage;
+
+      if (format === 'jpg') {
+        compressedImage = await sharp(imageBuffer).jpeg({ quality }).toBuffer();
+      } else if (format === 'png') {
+        compressedImage = await sharp(imageBuffer).png({ quality }).toBuffer();
+      } else {
+        return null;
+      }
+
+      const { size } = await sharp(compressedImage).metadata();
+
+      if (size / Cahe.#BYTES_PER_KB > Cahe.#GATE_IMAGE_SIZE) {
+        return await Cahe.#compressImage(compressedImage, name, quality - Cahe.#STEP_IMAGE_QUALITY);
+      }
+
+      signale.success(`Image ${path.basename(name)} compressed`);
 
       return compressedImage;
     } catch (error) {
@@ -130,9 +152,7 @@ class Cahe {
   }
 
   #removeCssLinkTag(htmlString) {
-    this.cssLinkTag = `<link rel="stylesheet" href="${this.cssFileName}.css" />`;
-
-    return htmlString.replace(this.cssLinkTag, '');
+    return htmlString.replace(this.#cssLinkTag, '');
   }
 
   #getImageSrcList(htmlString) {
@@ -152,7 +172,7 @@ class Cahe {
     const htmlInterestMiniFy = (this.minifyHtmlLog.cleanedLength / this.htmlOriginalSize) * 100;
 
     signale.info(
-      `HTML file size: ${(this.minifyHtmlLog.cleanedLength / 1e3).toFixed(2)} KB ${htmlInterestMiniFy.toFixed(0) - 100}%`,
+      `HTML file size: ${(this.minifyHtmlLog.cleanedLength / Cahe.#BYTES_PER_KB).toFixed(2)} KB ${htmlInterestMiniFy.toFixed(0) - 100}%`,
     );
 
     if (this.minifyHtmlLog.cleanedLength >= 1e5) signale.warn('The size of the HTML file exceeds 100 KB');
@@ -167,7 +187,7 @@ class Cahe {
 
     const [measure] = performance.getEntriesByName('A to B');
 
-    signale.log(`Time: ${(measure.duration / 1e3).toFixed(2)} s`);
+    signale.log(`Time: ${(measure.duration / Cahe.#BYTES_PER_KB).toFixed(2)} s`);
 
     performance.clearMarks();
     performance.clearMeasures();
@@ -176,8 +196,6 @@ class Cahe {
   async #addInlineCss(htmlString) {
     try {
       if (!htmlString) throw new Error('HTML file is empty. Please check the file and try again');
-
-      this.htmlOriginalSize = fs.statSync(path.resolve(this.FilePath)).size;
 
       let result = htmlString;
 
@@ -226,27 +244,32 @@ class Cahe {
       const tasks = this.imageSrcList.map(async (src) => {
         const imagePath = path.join(this.dirPath, src);
 
-        if (path.dirname(src) === this.imageDirName && fs.existsSync(imagePath)) {
+        if (path.dirname(src) === this.#imageDirName && fs.existsSync(imagePath)) {
           const { width, format } = await sharp(imagePath).metadata();
-
           const gateWidth = this.#imageWidthList[path.basename(src, path.extname(src)).split('_')[0]];
 
           if (gateWidth && width > gateWidth) {
-            const resizedImage = await Cahe.#resizeImage(imagePath, gateWidth);
+            let resizedImage = await Cahe.#resizeImage(imagePath, gateWidth);
+
+            if ((Buffer.byteLength(resizedImage) / Cahe.#BYTES_PER_KB) > Cahe.#GATE_IMAGE_SIZE) {
+              resizedImage = await Cahe.#compressImage(resizedImage, path.basename(imagePath));
+            }
 
             archive.append(resizedImage, { name: src });
           } else if (
             format !== 'gif'
             && format !== 'svg'
-            && fs.statSync(imagePath).size / 1e3 >= this.#GATE_IMAGE_SIZE
+            && fs.statSync(imagePath).size / Cahe.#BYTES_PER_KB >= Cahe.#GATE_IMAGE_SIZE
           ) {
-            const compressedImage = await Cahe.#compressImage(imagePath);
+            const compressedImage = await Cahe.#compressImage(
+              await fs.readFileSync(imagePath),
+              path.basename(imagePath),
+            );
 
             archive.append(compressedImage, { name: src });
           } else if (format === 'svg') {
             const convertedImage = await Cahe.#convertImage(imagePath);
-
-            const newName = `${this.imageDirName}/${path.basename(src, path.extname(src))}.png`;
+            const newName = `${this.#imageDirName}/${path.basename(src, path.extname(src))}.png`;
 
             this.htmlString = this.htmlString.replace(new RegExp(src, 'g'), newName);
 
@@ -284,7 +307,7 @@ class Cahe {
 
   async archiveContent() {
     try {
-      const archive = archiver('zip', { zlib: { level: this.#COMPRESSION_RATIO } });
+      const archive = archiver('zip', { zlib: { level: Cahe.#COMPRESSION_RATIO } });
       const output = createWriteStream(this.outputArchiveFilePath);
 
       archive.pipe(output);
@@ -338,10 +361,6 @@ if (
   const dirname = path.dirname(fileURLToPath(import.meta.url));
 
   dotenv.config({ path: path.resolve(dirname, '.env') });
-
-  tinify.key = process.env.TINIFY_KEY;
-
-  if (process.env.PROXY) tinify.proxy = process.env.PROXY;
 
   new Cahe(htmlFilePath).archiveContent();
 } else {
