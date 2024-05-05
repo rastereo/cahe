@@ -59,3 +59,5 @@ cahe file.html
 cahe file.html -e
 ```
 Архива будет извлечен в каталог /build.
+
+## 🧾[MIT Licensed](https://github.com/rastereo/cahe/blob/main/LICENSE)
