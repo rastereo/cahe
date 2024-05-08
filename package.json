@@ -1,6 +1,6 @@
 {
   "name": "cahe",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "create archive html email",
   "main": "cahe.js",
   "bin": {
@@ -32,7 +32,9 @@
     "dotenv": "^16.4.5",
     "email-comb": "^7.0.21",
     "extract-zip": "^2.0.1",
+    "https-proxy-agent": "^7.0.4",
     "juice": "^10.0.0",
+    "node-fetch": "^3.3.2",
     "sharp": "^0.33.3",
     "signale": "^1.4.0"
   }
