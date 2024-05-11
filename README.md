@@ -13,6 +13,7 @@ Cahe (**C**reate **A**rchive **H**TML **E**mail) — это CLI инструме
 + [Email-comb](https://codsen.com/os/email-comb)
 + [Juice](https://github.com/Automattic/juice)
 + [Sharp](https://sharp.pixelplumbing.com/)
++ [Netlify](https://www.netlify.com/)
 + [Signale](https://github.com/klaudiosinani/signale)
 + [Extract-zip](https://github.com/max-mapper/extract-zip)
 + [Clipboardy](https://github.com/sindresorhus/clipboardy)
