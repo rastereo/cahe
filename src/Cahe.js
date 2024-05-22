@@ -1,10 +1,19 @@
-#!/usr/bin/env node
-import fs, { createWriteStream } from 'fs';
-import path from 'path';
-import { performance } from 'perf_hooks';
-import { fileURLToPath } from 'url';
+import {
+  createReadStream,
+  createWriteStream,
+  existsSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from 'fs';
+import {
+  basename,
+  dirname,
+  extname,
+  join,
+  resolve,
+} from 'path';
 import fetch from 'node-fetch'; // https://github.com/node-fetch/node-fetch;
-import dotenv from 'dotenv'; // https://github.com/motdotla/dotenv
 // eslint-disable-next-line import/no-unresolved
 import { comb } from 'email-comb'; // https://codsen.com/os/email-comb
 import archiver from 'archiver'; // https://www.archiverjs.com/
@@ -72,34 +81,39 @@ class Cahe {
     contact: 185,
   };
 
-  constructor(htmlFilePath) {
+  constructor(htmlFilePath, netlifyKey, proxy) {
     this.filePath = htmlFilePath;
-    this.dirPath = path.dirname(this.filePath);
-    this.imagesDirPath = path.join(this.dirPath, this.#imageDirName);
-    this.fileName = path.basename(this.filePath, '.html');
-    this.cssFilePath = path.join(this.dirPath, `${this.#cssFileName}.css`);
-    this.outputArchiveFilePath = path.resolve(this.dirPath, `${this.fileName}.zip`);
-    this.configEmailPath = path.join(this.dirPath, this.#configEmailFileName);
+    this.dirPath = dirname(this.filePath);
+    this.imagesDirPath = join(this.dirPath, this.#imageDirName);
+    this.fileName = basename(this.filePath, '.html');
+    this.cssFilePath = join(this.dirPath, `${this.#cssFileName}.css`);
+    this.outputArchiveFilePath = resolve(this.dirPath, `${this.fileName}.zip`);
+    this.configEmailPath = join(this.dirPath, this.#configEmailFileName);
 
-    this.htmlString = this.filePath && fs.readFileSync(
-      path.resolve(this.filePath),
-      { encoding: 'utf-8' },
+    this.netlifyKey = netlifyKey && netlifyKey;
+    this.proxyAgent = proxy && new HttpsProxyAgent(proxy);
+
+    this.htmlString = this.filePath && readFileSync(
+      resolve(this.filePath),
+      'utf-8',
     );
 
-    this.emailConfig = fs.existsSync(this.configEmailPath)
-      ? JSON.parse(fs.readFileSync(
+    this.cssString = existsSync(this.cssFilePath) && readFileSync(
+      resolve(this.cssFilePath),
+      'utf-8',
+    );
+
+    this.emailConfig = existsSync(this.configEmailPath)
+      ? JSON.parse(readFileSync(
         this.configEmailPath,
-        { encoding: 'utf-8' },
+        'utf-8',
       ))
       : {};
 
     this.htmlOriginalSize = Buffer.byteLength(this.htmlString);
     this.archiveContent = this.archiveContent.bind(this);
-    this.scriptPath = path.dirname(fileURLToPath(import.meta.url));
 
-    dotenv.config({ path: path.resolve(this.scriptPath, '.env') });
-
-    this.proxyAgent = process.env.PROXY && new HttpsProxyAgent(process.env.PROXY);
+    if (!this.htmlString) throw new Error('HTML file is empty. Please check the file and try again');
   }
 
   static #stopWithError(errorMessage) {
@@ -126,7 +140,7 @@ class Cahe {
         .resize({ width })
         .toBuffer();
 
-      signale.success(`Image ${path.basename(imagePath)} resized`);
+      signale.success(`Image ${basename(imagePath)} resized`);
 
       return resizeImage;
     } catch (error) {
@@ -143,7 +157,7 @@ class Cahe {
         .sharpen()
         .toBuffer();
 
-      signale.success(`Image ${path.basename(imagePath)} converted`);
+      signale.success(`Image ${basename(imagePath)} converted`);
 
       return convertedImage;
     } catch (error) {
@@ -173,7 +187,7 @@ class Cahe {
         return await this.#compressImage(compressedImage, name, quality - this.#STEP_IMAGE_QUALITY);
       }
 
-      signale.success(`Image ${path.basename(name)} compressed`);
+      signale.success(`Image ${basename(name)} compressed`);
 
       return compressedImage;
     } catch (error) {
@@ -185,11 +199,11 @@ class Cahe {
 
   static async extractArchive(archivePath) {
     try {
-      const absolutePath = path.resolve(archivePath);
+      const absolutePath = resolve(archivePath);
 
       await extract(
         absolutePath,
-        { dir: path.join(path.dirname(absolutePath), this.#extractDirName) },
+        { dir: join(dirname(absolutePath), this.#extractDirName) },
       );
 
       signale.success(`Archive extract to ${this.#extractDirName} directory`);
@@ -216,33 +230,15 @@ class Cahe {
     if (this.emailConfig.webletterUrl) signale.info(`Webletter: ${this.emailConfig.webletterUrl}`);
     signale.info(`Path: ${this.outputArchiveFilePath}`);
     signale.info('Archive path copied to clipboard.');
-
-    performance.mark('B');
-    performance.measure('A to B', 'A', 'B');
-
-    const [measure] = performance.getEntriesByName('A to B');
-
-    signale.log(`Time: ${(measure.duration / 1e3).toFixed(2)} s`);
-
-    performance.clearMarks();
-    performance.clearMeasures();
   }
 
   async #addInlineCss(htmlString) {
     try {
-      if (!htmlString) throw new Error('HTML file is empty. Please check the file and try again');
-
       let result = htmlString;
 
-      if (fs.existsSync(this.cssFilePath)) {
-        const cssString = await fs.promises.readFile(
-          path.resolve(this.cssFilePath),
-          { encoding: 'utf-8' },
-        );
-
+      if (this.cssString) {
         result = this.#removeCssLinkTag(result);
-
-        result = juice.inlineContent(result, cssString, this.#juiceConfig);
+        result = juice.inlineContent(result, this.cssString, this.#juiceConfig);
       } else {
         signale.warn('CSS file not found');
 
@@ -277,34 +273,34 @@ class Cahe {
   async #createImageDir(archive) {
     try {
       const tasks = this.imageSrcList.map(async (src) => {
-        const imagePath = path.join(this.dirPath, src);
+        const imagePath = join(this.dirPath, src);
 
-        if (path.dirname(src) === this.#imageDirName && fs.existsSync(imagePath)) {
+        if (dirname(src) === this.#imageDirName && existsSync(imagePath)) {
           const { width, format } = await sharp(imagePath).metadata();
-          const gateWidth = this.#imageWidthList[path.basename(src, path.extname(src)).split('_')[0]];
+          const gateWidth = this.#imageWidthList[basename(src, extname(src)).split('_')[0]];
 
           if (gateWidth && width > gateWidth) {
             let resizedImage = await Cahe.#resizeImage(imagePath, gateWidth);
 
             if (Buffer.byteLength(resizedImage) > Cahe.#GATE_IMAGE_SIZE) {
-              resizedImage = await Cahe.#compressImage(resizedImage, path.basename(imagePath));
+              resizedImage = await Cahe.#compressImage(resizedImage, basename(imagePath));
             }
 
             archive.append(resizedImage, { name: src });
           } else if (
             format !== 'gif'
             && format !== 'svg'
-            && fs.statSync(imagePath).size >= Cahe.#GATE_IMAGE_SIZE
+            && statSync(imagePath).size >= Cahe.#GATE_IMAGE_SIZE
           ) {
             const compressedImage = await Cahe.#compressImage(
-              await fs.readFileSync(imagePath),
-              path.basename(imagePath),
+              await readFileSync(imagePath),
+              basename(imagePath),
             );
 
             archive.append(compressedImage, { name: src });
           } else if (format === 'svg') {
             const convertedImage = await Cahe.#convertImage(imagePath);
-            const newName = `${this.#imageDirName}/${path.basename(src, path.extname(src))}.png`;
+            const newName = `${this.#imageDirName}/${basename(src, extname(src))}.png`;
 
             this.htmlString = this.htmlString.replace(new RegExp(src, 'g'), newName);
 
@@ -329,8 +325,10 @@ class Cahe {
 
   async #createWebletter() {
     try {
+      if (!this.netlifyKey) throw new Error('Netlify key is missing');
+
       const { siteId } = this.emailConfig;
-      const stream = fs.createReadStream(this.outputArchiveFilePath);
+      const stream = createReadStream(this.outputArchiveFilePath);
 
       const url = siteId
         ? `https://api.netlify.com/api/v1/sites/${siteId}/deploys`
@@ -341,7 +339,7 @@ class Cahe {
         agent: this.proxyAgent,
         headers: {
           'Content-Type': 'application/zip',
-          Authorization: `Bearer ${process.env.NETLIFY_KEY}`,
+          Authorization: `Bearer ${this.netlifyKey}`,
         },
         body: stream,
       });
@@ -349,11 +347,11 @@ class Cahe {
       if (!siteId) {
         const { id, subdomain } = await res.json();
 
-        this.emailConfig.name = path.basename(path.resolve(this.dirPath));
+        this.emailConfig.name = basename(resolve(this.dirPath));
         this.emailConfig.siteId = id;
         this.emailConfig.webletterUrl = `https://${subdomain}.netlify.app`;
 
-        fs.writeFileSync(this.configEmailPath, JSON.stringify(this.emailConfig, null, 2));
+        writeFileSync(this.configEmailPath, JSON.stringify(this.emailConfig, null, 2));
       }
 
       signale.success('Create webletter');
@@ -369,7 +367,7 @@ class Cahe {
 
       archive.pipe(output);
 
-      if (fs.existsSync(this.imagesDirPath)) {
+      if (existsSync(this.imagesDirPath)) {
         this.imageSrcList = Cahe.#getImageSrcList(this.htmlString);
 
         await this.#createImageDir(archive);
@@ -382,23 +380,23 @@ class Cahe {
 
       archive.append(this.htmlString, { name: this.#indexFileName });
 
+      output.on('error', (error) => Cahe.#stopWithError(error.message));
+      archive.on('error', (error) => Cahe.#stopWithError(error.message));
+
+      await archive.finalize();
+
+      this.archiveSize = archive.pointer();
+
+      clipboard.writeSync(this.outputArchiveFilePath);
+
+      signale.success('Create archive');
+
       output.on('finish', async () => {
         if (process.argv[3] === '-e') await Cahe.extractArchive(this.outputArchiveFilePath);
         if (process.argv[3] === '-w') await this.#createWebletter();
 
         this.#createProcessLog(this.archiveSize);
       });
-      output.on('error', (error) => Cahe.#stopWithError(error.message));
-
-      archive.on('error', (error) => Cahe.#stopWithError(error.message));
-
-      await archive.finalize();
-
-      signale.success('Create archive');
-
-      this.archiveSize = archive.pointer();
-
-      clipboard.writeSync(this.outputArchiveFilePath);
 
       return this;
     } catch (error) {
@@ -407,26 +405,4 @@ class Cahe {
   }
 }
 
-performance.mark('A');
-
-const filePath = process.argv[2];
-
-if (
-  filePath
-  && path.extname(filePath.toLowerCase()) === '.html'
-  && fs.existsSync(filePath)
-) {
-  const client = new Cahe(filePath);
-
-  await client.archiveContent();
-} else if (
-  filePath
-  && path.extname(filePath.toLowerCase()) === '.zip'
-  && fs.existsSync(filePath)
-) {
-  Cahe.extractArchive(filePath);
-} else {
-  signale.fatal(
-    'The path to the HTML or ZIP file is either incorrect or missing. Please verify the path and ensure it is correctly specified.',
-  );
-}
+export default Cahe;
