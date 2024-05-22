@@ -1,6 +1,11 @@
 #!/usr/bin/env node
 import { existsSync } from 'fs';
-import { dirname, extname, resolve } from 'path';
+import {
+  dirname,
+  extname,
+  join,
+  resolve,
+} from 'path';
 import { fileURLToPath } from 'url';
 import signale from 'signale';
 import dotenv from 'dotenv'; // https://github.com/motdotla/dotenv
@@ -21,17 +26,28 @@ if (
 
     await cahe.archiveContent();
   } catch (error) {
-    signale.fatal(error.message);
+    signale.fatal(error);
   }
 } else if (
   filePath
   && existsSync(filePath)
   && extname(filePath.toLowerCase()) === '.zip'
 ) {
-  // if (process.argv[3] === '-w') {
-  //   Cahe.
-  // }
-  Cahe.extractArchive(filePath);
+  if (process.argv[3] === '-w') {
+    try {
+      const webletter = await Cahe.createWebletter(
+        filePath,
+        process.env.NETLIFY_KEY,
+        process.env.PROXY,
+      );
+
+      signale.info(`Webletter: ${webletter.webletterUrl}`);
+    } catch (error) {
+      signale.fatal(error);
+    }
+  } else {
+    Cahe.extractArchive(filePath);
+  }
 } else {
   signale.fatal(
     'The path to the HTML or ZIP file is either incorrect or missing. Please verify the path and ensure it is correctly specified.',

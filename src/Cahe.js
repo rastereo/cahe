@@ -33,6 +33,8 @@ class Cahe {
 
   static #extractDirName = 'build';
 
+  static #configEmailFileName = 'config.json';
+
   #COMPRESSION_RATIO = 8;
 
   imagesSum = 0;
@@ -42,8 +44,6 @@ class Cahe {
   #cssFileName = 'style';
 
   #indexFileName = 'index.html';
-
-  #configEmailFileName = 'config.json';
 
   #cssLinkTag = `<link rel="stylesheet" href="${this.#cssFileName}.css" />`;
 
@@ -88,10 +88,9 @@ class Cahe {
     this.fileName = basename(this.filePath, '.html');
     this.cssFilePath = join(this.dirPath, `${this.#cssFileName}.css`);
     this.outputArchiveFilePath = resolve(this.dirPath, `${this.fileName}.zip`);
-    this.configEmailPath = join(this.dirPath, this.#configEmailFileName);
 
     this.netlifyKey = netlifyKey && netlifyKey;
-    this.proxyAgent = proxy && new HttpsProxyAgent(proxy);
+    this.proxy = proxy;
 
     this.htmlString = this.filePath && readFileSync(
       resolve(this.filePath),
@@ -102,13 +101,6 @@ class Cahe {
       resolve(this.cssFilePath),
       'utf-8',
     );
-
-    this.emailConfig = existsSync(this.configEmailPath)
-      ? JSON.parse(readFileSync(
-        this.configEmailPath,
-        'utf-8',
-      ))
-      : {};
 
     this.htmlOriginalSize = Buffer.byteLength(this.htmlString);
     this.archiveContent = this.archiveContent.bind(this);
@@ -201,14 +193,68 @@ class Cahe {
     try {
       const absolutePath = resolve(archivePath);
 
+      const buildPath = join(dirname(absolutePath), this.#extractDirName);
+
       await extract(
         absolutePath,
-        { dir: join(dirname(absolutePath), this.#extractDirName) },
+        { dir: buildPath },
       );
 
-      signale.success(`Archive extract to ${this.#extractDirName} directory`);
+      signale.success(`Archive extract to ${buildPath} directory`);
     } catch (error) {
       this.#stopWithError(error);
+    }
+  }
+
+  static async createWebletter(archiveFilePath, netlifyKey, proxy) {
+    try {
+      if (!netlifyKey) throw new Error('Netlify key is missing');
+
+      const dirPath = dirname(archiveFilePath);
+      const configEmailPath = join(dirPath, Cahe.#configEmailFileName);
+
+      // console.log(archiveFilePath, emailConfigPath, netlifyKey, proxy);
+
+      const emailConfig = existsSync(configEmailPath)
+        ? JSON.parse(readFileSync(
+          configEmailPath,
+          'utf-8',
+        ))
+        : {};
+
+      const { siteId } = emailConfig;
+      const stream = createReadStream(archiveFilePath);
+      const proxyAgent = proxy && new HttpsProxyAgent(proxy);
+
+      const url = siteId
+        ? `https://api.netlify.com/api/v1/sites/${siteId}/deploys`
+        : 'https://api.netlify.com/api/v1/sites';
+
+      const res = await fetch(url, {
+        method: 'POST',
+        agent: proxy && proxyAgent,
+        headers: {
+          'Content-Type': 'application/zip',
+          Authorization: `Bearer ${netlifyKey}`,
+        },
+        body: stream,
+      });
+
+      if (!siteId) {
+        const { id, subdomain } = await res.json();
+
+        emailConfig.name = basename(dirPath);
+        emailConfig.siteId = id;
+        emailConfig.webletterUrl = `https://${subdomain}.netlify.app`;
+
+        writeFileSync(configEmailPath, JSON.stringify(emailConfig, null, 2));
+      }
+
+      signale.success('Create webletter');
+
+      return emailConfig;
+    } catch (error) {
+      return Cahe.#stopWithError(error);
     }
   }
 
@@ -227,7 +273,7 @@ class Cahe {
 
     signale.info(`Images: ${this.imagesSum}`);
     signale.info(`Total size: ${(archiveSize / 1e6).toFixed(2)} MB`);
-    if (this.emailConfig.webletterUrl) signale.info(`Webletter: ${this.emailConfig.webletterUrl}`);
+    if (this.emailConfig) signale.info(`Webletter: ${this.emailConfig.webletterUrl}`);
     signale.info(`Path: ${this.outputArchiveFilePath}`);
     signale.info('Archive path copied to clipboard.');
   }
@@ -323,43 +369,6 @@ class Cahe {
     }
   }
 
-  async #createWebletter() {
-    try {
-      if (!this.netlifyKey) throw new Error('Netlify key is missing');
-
-      const { siteId } = this.emailConfig;
-      const stream = createReadStream(this.outputArchiveFilePath);
-
-      const url = siteId
-        ? `https://api.netlify.com/api/v1/sites/${siteId}/deploys`
-        : 'https://api.netlify.com/api/v1/sites';
-
-      const res = await fetch(url, {
-        method: 'POST',
-        agent: this.proxyAgent,
-        headers: {
-          'Content-Type': 'application/zip',
-          Authorization: `Bearer ${this.netlifyKey}`,
-        },
-        body: stream,
-      });
-
-      if (!siteId) {
-        const { id, subdomain } = await res.json();
-
-        this.emailConfig.name = basename(resolve(this.dirPath));
-        this.emailConfig.siteId = id;
-        this.emailConfig.webletterUrl = `https://${subdomain}.netlify.app`;
-
-        writeFileSync(this.configEmailPath, JSON.stringify(this.emailConfig, null, 2));
-      }
-
-      signale.success('Create webletter');
-    } catch (error) {
-      Cahe.#stopWithError(error);
-    }
-  }
-
   async archiveContent() {
     try {
       const archive = archiver('zip', { zlib: { level: this.#COMPRESSION_RATIO } });
@@ -392,8 +401,17 @@ class Cahe {
       signale.success('Create archive');
 
       output.on('finish', async () => {
-        if (process.argv[3] === '-e') await Cahe.extractArchive(this.outputArchiveFilePath);
-        if (process.argv[3] === '-w') await this.#createWebletter();
+        if (process.argv[3] === '-e') {
+          await Cahe.extractArchive(this.outputArchiveFilePath);
+        }
+
+        if (process.argv[3] === '-w') {
+          this.emailConfig = await Cahe.createWebletter(
+            this.outputArchiveFilePath,
+            this.netlifyKey,
+            this.proxy,
+          );
+        }
 
         this.#createProcessLog(this.archiveSize);
       });
