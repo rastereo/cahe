@@ -31,6 +31,8 @@ class Cahe {
 
   static #regexImageSrc = /src="(?!http:\/\/|https:\/\/)([^"]*)"/g;
 
+  static #regexLinkHref = /href="([^"]*)"/g;
+
   static #extractDirName = 'build';
 
   static #configEmailFileName = 'config.json';
@@ -111,6 +113,20 @@ class Cahe {
   static #stopWithError(errorMessage) {
     signale.fatal(errorMessage);
     process.exit(1);
+  }
+
+  static #trimHrefLink(htmlString) {
+    const matches = Array.from(htmlString.matchAll(this.#regexLinkHref));
+
+    let result = htmlString;
+
+    matches.forEach((href) => {
+      const url = href[1];
+
+      result = result.replace(url, url.trim());
+    });
+
+    return result;
   }
 
   static #getImageSrcList(htmlString) {
@@ -384,6 +400,7 @@ class Cahe {
         signale.warn('Images directory is missing');
       }
 
+      this.htmlString = Cahe.#trimHrefLink(this.htmlString);
       this.htmlString = await this.#addInlineCss(this.htmlString);
       this.htmlString = await this.#minifyHtml(this.htmlString);
 
