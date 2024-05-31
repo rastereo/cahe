@@ -29,9 +29,13 @@ class Cahe {
 
   static #GATE_IMAGE_SIZE = 5e5;
 
-  static #regexImageSrc = /src="(?!http:\/\/|https:\/\/)([^"]*)"/g;
-
   static #regexLinkHref = /href="([^"]*)"/g;
+
+  static #regexImageTag = /<img\s[^>]*?src\s*=\s*['\\"]([^'\\"]*?)['\\"][^>]*?>/g;
+
+  static #regexDataWidth = /data-width="\d+"/g;
+
+  static #regexNumber = /\d+/g;
 
   static #extractDirName = 'build';
 
@@ -74,13 +78,6 @@ class Cahe {
   #juiceConfig = {
     preserveImportant: true,
     resolveCSSVariables: true,
-  };
-
-  #imageWidthList = {
-    banner: 700,
-    image: 560,
-    block: 260,
-    contact: 185,
   };
 
   constructor(htmlFilePath, netlifyKey, proxy) {
@@ -129,23 +126,38 @@ class Cahe {
     return result;
   }
 
-  static #getImageSrcList(htmlString) {
-    const matches = Array.from(htmlString.matchAll(this.#regexImageSrc));
-    const srcList = [];
+  static #getImageList(htmlString) {
+    const matches = Array.from(htmlString.matchAll(this.#regexImageTag));
+    const list = [];
 
-    matches.forEach((src) => {
-      const imagePath = src[1].replace('./', '');
+    matches.forEach((img) => {
+      const path = img[1];
+      const dataWidth = img[0].match(this.#regexDataWidth);
+      let gateWidth;
 
-      if (!srcList.includes(imagePath)) srcList.push(imagePath);
+      if (dataWidth) {
+        gateWidth = Number(dataWidth[0].match(this.#regexNumber)[0]);
+      }
+
+      const result = { path, gateWidth };
+
+      let duplicateEmail = false;
+
+      list.forEach((item) => {
+        if (item.path === result.path) duplicateEmail = true;
+      });
+
+      if (!duplicateEmail) list.push(result);
     });
 
-    return srcList;
+    return list;
   }
 
   static async #resizeImage(imagePath, width) {
     try {
       const resizeImage = await sharp(imagePath)
         .resize({ width })
+        .sharpen()
         .toBuffer();
 
       signale.success(`Image ${basename(imagePath)} resized`);
@@ -182,9 +194,9 @@ class Cahe {
       let compressedImage;
 
       if (format === 'jpg') {
-        compressedImage = await sharp(imageBuffer).jpeg({ quality }).toBuffer();
+        compressedImage = await sharp(imageBuffer).jpeg({ quality }).sharpen().toBuffer();
       } else if (format === 'png') {
-        compressedImage = await sharp(imageBuffer).png({ quality }).toBuffer();
+        compressedImage = await sharp(imageBuffer).png({ quality }).sharpen().toBuffer();
       } else {
         return null;
       }
@@ -228,8 +240,6 @@ class Cahe {
 
       const dirPath = dirname(archiveFilePath);
       const configEmailPath = join(dirPath, Cahe.#configEmailFileName);
-
-      // console.log(archiveFilePath, emailConfigPath, netlifyKey, proxy);
 
       const emailConfig = existsSync(configEmailPath)
         ? JSON.parse(readFileSync(
@@ -334,12 +344,11 @@ class Cahe {
 
   async #createImageDir(archive) {
     try {
-      const tasks = this.imageSrcList.map(async (src) => {
-        const imagePath = join(this.dirPath, src);
+      const tasks = this.imageSrcList.map(async ({ path, gateWidth }) => {
+        const imagePath = join(this.dirPath, path);
 
-        if (dirname(src) === this.#imageDirName && existsSync(imagePath)) {
+        if (dirname(path) === this.#imageDirName && existsSync(imagePath)) {
           const { width, format } = await sharp(imagePath).metadata();
-          const gateWidth = this.#imageWidthList[basename(src, extname(src)).split('_')[0]];
 
           if (gateWidth && width > gateWidth) {
             let resizedImage = await Cahe.#resizeImage(imagePath, gateWidth);
@@ -348,7 +357,7 @@ class Cahe {
               resizedImage = await Cahe.#compressImage(resizedImage, basename(imagePath));
             }
 
-            archive.append(resizedImage, { name: src });
+            archive.append(resizedImage, { name: path });
           } else if (
             format !== 'gif'
             && format !== 'svg'
@@ -359,16 +368,16 @@ class Cahe {
               basename(imagePath),
             );
 
-            archive.append(compressedImage, { name: src });
+            archive.append(compressedImage, { name: path });
           } else if (format === 'svg') {
             const convertedImage = await Cahe.#convertImage(imagePath);
-            const newName = `${this.#imageDirName}/${basename(src, extname(src))}.png`;
+            const newName = `${this.#imageDirName}/${basename(path, extname(path))}.png`;
 
-            this.htmlString = this.htmlString.replace(new RegExp(src, 'g'), newName);
+            this.htmlString = this.htmlString.replace(new RegExp(path, 'g'), newName);
 
             archive.append(convertedImage, { name: newName });
           } else {
-            archive.file(imagePath, { name: src });
+            archive.file(imagePath, { name: path });
           }
 
           this.imagesSum += 1;
@@ -393,7 +402,7 @@ class Cahe {
       archive.pipe(output);
 
       if (existsSync(this.imagesDirPath)) {
-        this.imageSrcList = Cahe.#getImageSrcList(this.htmlString);
+        this.imageSrcList = Cahe.#getImageList(this.htmlString);
 
         await this.#createImageDir(archive);
       } else {
