@@ -1,7 +1,7 @@
 # Create Archive HTML Email
 
 <p align="center">
-  <img src="https://i.postimg.cc/8PwmHr4W/Screenshot-2024-05-31-152732.png" width="300px" border='0' alt='Screenshot-2024-04-25-123930'/>
+  <img src="https://i.postimg.cc/8PwmHr4W/Screenshot-2024-05-31-152732.png" width="400px" border='0' alt='Screenshot-2024-04-25-123930'/>
 </p>
 
 Cahe (**C**reate **A**rchive **H**TML **E**mail) — это CLI инструмент для создания архивов HTML-рассылок. Он уменьшает размер HTML, переносит CSS-свойства в атрибут style HTML-элементов, обрабатывает изображения (сжатие, изменение размера, конвертация svg) и упаковывает всё в ZIP-файл. Подходит для работы с [Unisender](https://www.unisender.com/) и другими похожими сервисами.
@@ -64,6 +64,7 @@ cahe file.zip
 Архива будет извлечен в каталог /build, где лежит HTML-файл.
 
 **Как автоматически изменять размер изображений**
+
 Добавьте в HTML элементу img атрибут data-width с нужной шириной в px.
 ```html
 <img src="images/banner.png" width="100%" data-width="600" />
