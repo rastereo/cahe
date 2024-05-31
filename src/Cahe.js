@@ -1,10 +1,19 @@
-#!/usr/bin/env node
-import fs, { createWriteStream } from 'fs';
-import path from 'path';
-import { performance } from 'perf_hooks';
-import { fileURLToPath } from 'url';
+import {
+  createReadStream,
+  createWriteStream,
+  existsSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from 'fs';
+import {
+  basename,
+  dirname,
+  extname,
+  join,
+  resolve,
+} from 'path';
 import fetch from 'node-fetch'; // https://github.com/node-fetch/node-fetch;
-import dotenv from 'dotenv'; // https://github.com/motdotla/dotenv
 // eslint-disable-next-line import/no-unresolved
 import { comb } from 'email-comb'; // https://codsen.com/os/email-comb
 import archiver from 'archiver'; // https://www.archiverjs.com/
@@ -20,9 +29,17 @@ class Cahe {
 
   static #GATE_IMAGE_SIZE = 5e5;
 
-  static #regexImageSrc = /src="(?!http:\/\/|https:\/\/)([^"]*)"/g;
+  static #regexLinkHref = /href="([^"]*)"/g;
+
+  static #regexImageTag = /<img\s[^>]*?src\s*=\s*['\\"]([^'\\"]*?)['\\"][^>]*?>/g;
+
+  static #regexDataWidth = /data-width="\d+"/g;
+
+  static #regexNumber = /\d+/g;
 
   static #extractDirName = 'build';
+
+  static #configEmailFileName = 'config.json';
 
   #COMPRESSION_RATIO = 8;
 
@@ -33,8 +50,6 @@ class Cahe {
   #cssFileName = 'style';
 
   #indexFileName = 'index.html';
-
-  #configEmailFileName = 'config.json';
 
   #cssLinkTag = `<link rel="stylesheet" href="${this.#cssFileName}.css" />`;
 
@@ -65,41 +80,31 @@ class Cahe {
     resolveCSSVariables: true,
   };
 
-  #imageWidthList = {
-    banner: 700,
-    image: 560,
-    block: 260,
-    contact: 185,
-  };
-
-  constructor(htmlFilePath) {
+  constructor(htmlFilePath, netlifyKey, proxy) {
     this.filePath = htmlFilePath;
-    this.dirPath = path.dirname(this.filePath);
-    this.imagesDirPath = path.join(this.dirPath, this.#imageDirName);
-    this.fileName = path.basename(this.filePath, '.html');
-    this.cssFilePath = path.join(this.dirPath, `${this.#cssFileName}.css`);
-    this.outputArchiveFilePath = path.resolve(this.dirPath, `${this.fileName}.zip`);
-    this.configEmailPath = path.join(this.dirPath, this.#configEmailFileName);
+    this.dirPath = dirname(this.filePath);
+    this.imagesDirPath = join(this.dirPath, this.#imageDirName);
+    this.fileName = basename(this.filePath, '.html');
+    this.cssFilePath = join(this.dirPath, `${this.#cssFileName}.css`);
+    this.outputArchiveFilePath = resolve(this.dirPath, `${this.fileName}.zip`);
 
-    this.htmlString = this.filePath && fs.readFileSync(
-      path.resolve(this.filePath),
-      { encoding: 'utf-8' },
+    this.netlifyKey = netlifyKey && netlifyKey;
+    this.proxy = proxy;
+
+    this.htmlString = this.filePath && readFileSync(
+      resolve(this.filePath),
+      'utf-8',
     );
 
-    this.emailConfig = fs.existsSync(this.configEmailPath)
-      ? JSON.parse(fs.readFileSync(
-        this.configEmailPath,
-        { encoding: 'utf-8' },
-      ))
-      : {};
+    this.cssString = existsSync(this.cssFilePath) && readFileSync(
+      resolve(this.cssFilePath),
+      'utf-8',
+    );
 
     this.htmlOriginalSize = Buffer.byteLength(this.htmlString);
     this.archiveContent = this.archiveContent.bind(this);
-    this.scriptPath = path.dirname(fileURLToPath(import.meta.url));
 
-    dotenv.config({ path: path.resolve(this.scriptPath, '.env') });
-
-    this.proxyAgent = process.env.PROXY && new HttpsProxyAgent(process.env.PROXY);
+    if (!this.htmlString) throw new Error('HTML file is empty. Please check the file and try again');
   }
 
   static #stopWithError(errorMessage) {
@@ -107,26 +112,55 @@ class Cahe {
     process.exit(1);
   }
 
-  static #getImageSrcList(htmlString) {
-    const matches = Array.from(htmlString.matchAll(this.#regexImageSrc));
-    const srcList = [];
+  static #trimHrefLink(htmlString) {
+    const matches = Array.from(htmlString.matchAll(this.#regexLinkHref));
 
-    matches.forEach((src) => {
-      const imagePath = src[1].replace('./', '');
+    let result = htmlString;
 
-      if (!srcList.includes(imagePath)) srcList.push(imagePath);
+    matches.forEach((href) => {
+      const url = href[1];
+
+      result = result.replace(url, url.trim());
     });
 
-    return srcList;
+    return result;
+  }
+
+  static #getImageList(htmlString) {
+    const matches = Array.from(htmlString.matchAll(this.#regexImageTag));
+    const list = [];
+
+    matches.forEach((img) => {
+      const path = img[1];
+      const dataWidth = img[0].match(this.#regexDataWidth);
+      let gateWidth;
+
+      if (dataWidth) {
+        gateWidth = Number(dataWidth[0].match(this.#regexNumber)[0]);
+      }
+
+      const result = { path, gateWidth };
+
+      let duplicateEmail = false;
+
+      list.forEach((item) => {
+        if (item.path === result.path) duplicateEmail = true;
+      });
+
+      if (!duplicateEmail) list.push(result);
+    });
+
+    return list;
   }
 
   static async #resizeImage(imagePath, width) {
     try {
       const resizeImage = await sharp(imagePath)
         .resize({ width })
+        .sharpen()
         .toBuffer();
 
-      signale.success(`Image ${path.basename(imagePath)} resized`);
+      signale.success(`Image ${basename(imagePath)} resized`);
 
       return resizeImage;
     } catch (error) {
@@ -143,7 +177,7 @@ class Cahe {
         .sharpen()
         .toBuffer();
 
-      signale.success(`Image ${path.basename(imagePath)} converted`);
+      signale.success(`Image ${basename(imagePath)} converted`);
 
       return convertedImage;
     } catch (error) {
@@ -160,9 +194,9 @@ class Cahe {
       let compressedImage;
 
       if (format === 'jpg') {
-        compressedImage = await sharp(imageBuffer).jpeg({ quality }).toBuffer();
+        compressedImage = await sharp(imageBuffer).jpeg({ quality }).sharpen().toBuffer();
       } else if (format === 'png') {
-        compressedImage = await sharp(imageBuffer).png({ quality }).toBuffer();
+        compressedImage = await sharp(imageBuffer).png({ quality }).sharpen().toBuffer();
       } else {
         return null;
       }
@@ -173,7 +207,7 @@ class Cahe {
         return await this.#compressImage(compressedImage, name, quality - this.#STEP_IMAGE_QUALITY);
       }
 
-      signale.success(`Image ${path.basename(name)} compressed`);
+      signale.success(`Image ${basename(name)} compressed`);
 
       return compressedImage;
     } catch (error) {
@@ -185,16 +219,68 @@ class Cahe {
 
   static async extractArchive(archivePath) {
     try {
-      const absolutePath = path.resolve(archivePath);
+      const absolutePath = resolve(archivePath);
+
+      const buildPath = join(dirname(absolutePath), this.#extractDirName);
 
       await extract(
         absolutePath,
-        { dir: path.join(path.dirname(absolutePath), this.#extractDirName) },
+        { dir: buildPath },
       );
 
-      signale.success(`Archive extract to ${this.#extractDirName} directory`);
+      signale.success(`Archive extract to ${buildPath} directory`);
     } catch (error) {
       this.#stopWithError(error);
+    }
+  }
+
+  static async createWebletter(archiveFilePath, netlifyKey, proxy) {
+    try {
+      if (!netlifyKey) throw new Error('Netlify key is missing');
+
+      const dirPath = dirname(archiveFilePath);
+      const configEmailPath = join(dirPath, Cahe.#configEmailFileName);
+
+      const emailConfig = existsSync(configEmailPath)
+        ? JSON.parse(readFileSync(
+          configEmailPath,
+          'utf-8',
+        ))
+        : {};
+
+      const { siteId } = emailConfig;
+      const stream = createReadStream(archiveFilePath);
+      const proxyAgent = proxy && new HttpsProxyAgent(proxy);
+
+      const url = siteId
+        ? `https://api.netlify.com/api/v1/sites/${siteId}/deploys`
+        : 'https://api.netlify.com/api/v1/sites';
+
+      const res = await fetch(url, {
+        method: 'POST',
+        agent: proxy && proxyAgent,
+        headers: {
+          'Content-Type': 'application/zip',
+          Authorization: `Bearer ${netlifyKey}`,
+        },
+        body: stream,
+      });
+
+      if (!siteId) {
+        const { id, subdomain } = await res.json();
+
+        emailConfig.name = basename(dirPath);
+        emailConfig.siteId = id;
+        emailConfig.webletterUrl = `https://${subdomain}.netlify.app`;
+
+        writeFileSync(configEmailPath, JSON.stringify(emailConfig, null, 2));
+      }
+
+      signale.success('Create webletter');
+
+      return emailConfig;
+    } catch (error) {
+      return Cahe.#stopWithError(error);
     }
   }
 
@@ -213,36 +299,18 @@ class Cahe {
 
     signale.info(`Images: ${this.imagesSum}`);
     signale.info(`Total size: ${(archiveSize / 1e6).toFixed(2)} MB`);
-    if (this.emailConfig.webletterUrl) signale.info(`Webletter: ${this.emailConfig.webletterUrl}`);
+    if (this.emailConfig) signale.info(`Webletter: ${this.emailConfig.webletterUrl}`);
     signale.info(`Path: ${this.outputArchiveFilePath}`);
     signale.info('Archive path copied to clipboard.');
-
-    performance.mark('B');
-    performance.measure('A to B', 'A', 'B');
-
-    const [measure] = performance.getEntriesByName('A to B');
-
-    signale.log(`Time: ${(measure.duration / 1e3).toFixed(2)} s`);
-
-    performance.clearMarks();
-    performance.clearMeasures();
   }
 
   async #addInlineCss(htmlString) {
     try {
-      if (!htmlString) throw new Error('HTML file is empty. Please check the file and try again');
-
       let result = htmlString;
 
-      if (fs.existsSync(this.cssFilePath)) {
-        const cssString = await fs.promises.readFile(
-          path.resolve(this.cssFilePath),
-          { encoding: 'utf-8' },
-        );
-
+      if (this.cssString) {
         result = this.#removeCssLinkTag(result);
-
-        result = juice.inlineContent(result, cssString, this.#juiceConfig);
+        result = juice.inlineContent(result, this.cssString, this.#juiceConfig);
       } else {
         signale.warn('CSS file not found');
 
@@ -276,41 +344,40 @@ class Cahe {
 
   async #createImageDir(archive) {
     try {
-      const tasks = this.imageSrcList.map(async (src) => {
-        const imagePath = path.join(this.dirPath, src);
+      const tasks = this.imageSrcList.map(async ({ path, gateWidth }) => {
+        const imagePath = join(this.dirPath, path);
 
-        if (path.dirname(src) === this.#imageDirName && fs.existsSync(imagePath)) {
+        if (dirname(path) === this.#imageDirName && existsSync(imagePath)) {
           const { width, format } = await sharp(imagePath).metadata();
-          const gateWidth = this.#imageWidthList[path.basename(src, path.extname(src)).split('_')[0]];
 
           if (gateWidth && width > gateWidth) {
             let resizedImage = await Cahe.#resizeImage(imagePath, gateWidth);
 
             if (Buffer.byteLength(resizedImage) > Cahe.#GATE_IMAGE_SIZE) {
-              resizedImage = await Cahe.#compressImage(resizedImage, path.basename(imagePath));
+              resizedImage = await Cahe.#compressImage(resizedImage, basename(imagePath));
             }
 
-            archive.append(resizedImage, { name: src });
+            archive.append(resizedImage, { name: path });
           } else if (
             format !== 'gif'
             && format !== 'svg'
-            && fs.statSync(imagePath).size >= Cahe.#GATE_IMAGE_SIZE
+            && statSync(imagePath).size >= Cahe.#GATE_IMAGE_SIZE
           ) {
             const compressedImage = await Cahe.#compressImage(
-              await fs.readFileSync(imagePath),
-              path.basename(imagePath),
+              await readFileSync(imagePath),
+              basename(imagePath),
             );
 
-            archive.append(compressedImage, { name: src });
+            archive.append(compressedImage, { name: path });
           } else if (format === 'svg') {
             const convertedImage = await Cahe.#convertImage(imagePath);
-            const newName = `${this.#imageDirName}/${path.basename(src, path.extname(src))}.png`;
+            const newName = `${this.#imageDirName}/${basename(path, extname(path))}.png`;
 
-            this.htmlString = this.htmlString.replace(new RegExp(src, 'g'), newName);
+            this.htmlString = this.htmlString.replace(new RegExp(path, 'g'), newName);
 
             archive.append(convertedImage, { name: newName });
           } else {
-            archive.file(imagePath, { name: src });
+            archive.file(imagePath, { name: path });
           }
 
           this.imagesSum += 1;
@@ -327,41 +394,6 @@ class Cahe {
     }
   }
 
-  async #createWebletter() {
-    try {
-      const { siteId } = this.emailConfig;
-      const stream = fs.createReadStream(this.outputArchiveFilePath);
-
-      const url = siteId
-        ? `https://api.netlify.com/api/v1/sites/${siteId}/deploys`
-        : 'https://api.netlify.com/api/v1/sites';
-
-      const res = await fetch(url, {
-        method: 'POST',
-        agent: this.proxyAgent,
-        headers: {
-          'Content-Type': 'application/zip',
-          Authorization: `Bearer ${process.env.NETLIFY_KEY}`,
-        },
-        body: stream,
-      });
-
-      if (!siteId) {
-        const { id, subdomain } = await res.json();
-
-        this.emailConfig.name = path.basename(path.resolve(this.dirPath));
-        this.emailConfig.siteId = id;
-        this.emailConfig.webletterUrl = `https://${subdomain}.netlify.app`;
-
-        fs.writeFileSync(this.configEmailPath, JSON.stringify(this.emailConfig, null, 2));
-      }
-
-      signale.success('Create webletter');
-    } catch (error) {
-      Cahe.#stopWithError(error);
-    }
-  }
-
   async archiveContent() {
     try {
       const archive = archiver('zip', { zlib: { level: this.#COMPRESSION_RATIO } });
@@ -369,36 +401,46 @@ class Cahe {
 
       archive.pipe(output);
 
-      if (fs.existsSync(this.imagesDirPath)) {
-        this.imageSrcList = Cahe.#getImageSrcList(this.htmlString);
+      if (existsSync(this.imagesDirPath)) {
+        this.imageSrcList = Cahe.#getImageList(this.htmlString);
 
         await this.#createImageDir(archive);
       } else {
         signale.warn('Images directory is missing');
       }
 
+      this.htmlString = Cahe.#trimHrefLink(this.htmlString);
       this.htmlString = await this.#addInlineCss(this.htmlString);
       this.htmlString = await this.#minifyHtml(this.htmlString);
 
       archive.append(this.htmlString, { name: this.#indexFileName });
 
-      output.on('finish', async () => {
-        if (process.argv[3] === '-e') await Cahe.extractArchive(this.outputArchiveFilePath);
-        if (process.argv[3] === '-w') await this.#createWebletter();
-
-        this.#createProcessLog(this.archiveSize);
-      });
       output.on('error', (error) => Cahe.#stopWithError(error.message));
-
       archive.on('error', (error) => Cahe.#stopWithError(error.message));
 
       await archive.finalize();
 
-      signale.success('Create archive');
-
       this.archiveSize = archive.pointer();
 
       clipboard.writeSync(this.outputArchiveFilePath);
+
+      signale.success('Create archive');
+
+      output.on('finish', async () => {
+        if (process.argv[3] === '-e') {
+          await Cahe.extractArchive(this.outputArchiveFilePath);
+        }
+
+        if (process.argv[3] === '-w') {
+          this.emailConfig = await Cahe.createWebletter(
+            this.outputArchiveFilePath,
+            this.netlifyKey,
+            this.proxy,
+          );
+        }
+
+        this.#createProcessLog(this.archiveSize);
+      });
 
       return this;
     } catch (error) {
@@ -407,26 +449,4 @@ class Cahe {
   }
 }
 
-performance.mark('A');
-
-const filePath = process.argv[2];
-
-if (
-  filePath
-  && path.extname(filePath.toLowerCase()) === '.html'
-  && fs.existsSync(filePath)
-) {
-  const client = new Cahe(filePath);
-
-  await client.archiveContent();
-} else if (
-  filePath
-  && path.extname(filePath.toLowerCase()) === '.zip'
-  && fs.existsSync(filePath)
-) {
-  Cahe.extractArchive(filePath);
-} else {
-  signale.fatal(
-    'The path to the HTML or ZIP file is either incorrect or missing. Please verify the path and ensure it is correctly specified.',
-  );
-}
+export default Cahe;

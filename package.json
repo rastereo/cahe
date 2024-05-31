@@ -1,15 +1,15 @@
 {
   "name": "cahe",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "create archive html email",
-  "main": "cahe.js",
+  "main": "index.js",
   "bin": {
-    "cahe": "./cahe.js"
+    "cahe": "./index.js"
   },
   "type": "module",
   "scripts": {
-    "init": "chmod +x cahe.js && npm install -g",
-    "lint": "eslint cahe.js"
+    "init": "chmod +x index.js && npm install -g",
+    "lint": "eslint"
   },
   "repository": {
     "type": "git",
