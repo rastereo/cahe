@@ -37,6 +37,8 @@ class Cahe {
 
   static #regexNumber = /\d+/g;
 
+  static #regexHTTP = /^https?:/g;
+
   static #extractDirName = 'build';
 
   static #configEmailFileName = 'config.json';
@@ -132,25 +134,69 @@ class Cahe {
 
     matches.forEach((img) => {
       const path = img[1];
-      const dataWidth = img[0].match(this.#regexDataWidth);
-      let gateWidth;
 
-      if (dataWidth) {
-        gateWidth = Number(dataWidth[0].match(this.#regexNumber)[0]);
+      if (!new RegExp(this.#regexHTTP).test(path)) {
+        const dataWidth = img[0].match(this.#regexDataWidth);
+        let gateWidth;
+
+        if (dataWidth) {
+          gateWidth = Number(dataWidth[0].match(this.#regexNumber)[0]);
+        }
+
+        const result = { path, gateWidth };
+
+        let duplicateEmail = false;
+
+        list.forEach((item) => {
+          if (item.path === result.path) duplicateEmail = true;
+        });
+
+        if (!duplicateEmail) list.push(result);
       }
-
-      const result = { path, gateWidth };
-
-      let duplicateEmail = false;
-
-      list.forEach((item) => {
-        if (item.path === result.path) duplicateEmail = true;
-      });
-
-      if (!duplicateEmail) list.push(result);
     });
 
     return list;
+  }
+
+  static #addClosingSlashes(htmlString) {
+    const elemTypes = [
+      'area',
+      'base',
+      'br',
+      'col',
+      'embed',
+      'hr',
+      'img',
+      'input',
+      'link',
+      'meta',
+      'param',
+    ];
+
+    let inString;
+    let outString = htmlString;
+
+    for (let i = 0; i < elemTypes.length; i += 1) {
+      let index1 = 0;
+      let index2;
+
+      inString = outString;
+      outString = '';
+
+      // eslint-disable-next-line no-cond-assign
+      while ((index1 = inString.indexOf(`<${elemTypes[i]}`)) !== -1) {
+        // eslint-disable-next-line no-cond-assign
+        if ((index2 = inString.indexOf('>', index1)) !== -1 && inString.substring(index2 - 1, index2 + 1) !== '/>') {
+          outString += `${inString.substring(0, index2)} />`;
+          inString = inString.substring(index2 + 1);
+        } else {
+          break;
+        }
+      }
+
+      outString += inString;
+    }
+    return outString;
   }
 
   static async #resizeImage(imagePath, width) {
@@ -194,7 +240,7 @@ class Cahe {
       let compressedImage;
 
       if (format === 'jpg') {
-        compressedImage = await sharp(imageBuffer).jpeg({ quality }).sharpen().toBuffer();
+        compressedImage = await sharp(imageBuffer).jpeg({ quality }).toBuffer();
       } else if (format === 'png') {
         compressedImage = await sharp(imageBuffer).png({ quality }).sharpen().toBuffer();
       } else {
@@ -234,13 +280,60 @@ class Cahe {
     }
   }
 
-  static async createWebletter(archiveFilePath, netlifyKey, proxy) {
+  // static async createWebletter(archiveFilePath, netlifyKey, proxy) {
+  //   try {
+  //     if (!netlifyKey) throw new Error('Netlify key is missing');
+
+  //     const dirPath = dirname(archiveFilePath);
+  //     const configEmailPath = join(dirPath, Cahe.#configEmailFileName);
+
+  //     const emailConfig = existsSync(configEmailPath)
+  //       ? JSON.parse(readFileSync(
+  //         configEmailPath,
+  //         'utf-8',
+  //       ))
+  //       : {};
+
+  //     const { siteId } = emailConfig;
+  //     const stream = createReadStream(archiveFilePath);
+  //     const proxyAgent = proxy && new HttpsProxyAgent(proxy);
+
+  //     const url = siteId
+  //       ? `https://api.netlify.com/api/v1/sites/${siteId}/deploys`
+  //       : 'https://api.netlify.com/api/v1/sites';
+
+  //     const res = await fetch(url, {
+  //       method: 'POST',
+  //       agent: proxy && proxyAgent,
+  //       headers: {
+  //         'Content-Type': 'application/zip',
+  //         Authorization: `Bearer ${netlifyKey}`,
+  //       },
+  //       body: stream,
+  //     });
+
+  //     if (!siteId) {
+  //       const { id, subdomain } = await res.json();
+
+  //       emailConfig.name = basename(dirPath);
+  //       emailConfig.siteId = id;
+  //       emailConfig.webletterUrl = `https://${subdomain}.netlify.app`;
+
+  //       writeFileSync(configEmailPath, JSON.stringify(emailConfig, null, 2));
+  //     }
+
+  //     signale.success('Create webletter');
+
+  //     return emailConfig;
+  //   } catch (error) {
+  //     return Cahe.#stopWithError(error);
+  //   }
+  // }
+  static async createWebletter(file, outputPath, netlifyKey, proxy) {
     try {
       if (!netlifyKey) throw new Error('Netlify key is missing');
 
-      const dirPath = dirname(archiveFilePath);
-      const configEmailPath = join(dirPath, Cahe.#configEmailFileName);
-
+      const configEmailPath = join(outputPath, Cahe.#configEmailFileName);
       const emailConfig = existsSync(configEmailPath)
         ? JSON.parse(readFileSync(
           configEmailPath,
@@ -249,8 +342,9 @@ class Cahe {
         : {};
 
       const { siteId } = emailConfig;
-      const stream = createReadStream(archiveFilePath);
       const proxyAgent = proxy && new HttpsProxyAgent(proxy);
+
+      const body = Buffer.isBuffer(file) ? file : createReadStream(file);
 
       const url = siteId
         ? `https://api.netlify.com/api/v1/sites/${siteId}/deploys`
@@ -263,13 +357,13 @@ class Cahe {
           'Content-Type': 'application/zip',
           Authorization: `Bearer ${netlifyKey}`,
         },
-        body: stream,
+        body,
       });
 
       if (!siteId) {
         const { id, subdomain } = await res.json();
 
-        emailConfig.name = basename(dirPath);
+        emailConfig.name = basename(outputPath);
         emailConfig.siteId = id;
         emailConfig.webletterUrl = `https://${subdomain}.netlify.app`;
 
@@ -404,13 +498,19 @@ class Cahe {
       if (existsSync(this.imagesDirPath)) {
         this.imageSrcList = Cahe.#getImageList(this.htmlString);
 
-        await this.#createImageDir(archive);
+        if (this.imageSrcList.length > 0) {
+          await this.#createImageDir(archive);
+        } else {
+          signale.warn('No photos available locally');
+        }
       } else {
         signale.warn('Images directory is missing');
       }
 
       this.htmlString = Cahe.#trimHrefLink(this.htmlString);
       this.htmlString = await this.#addInlineCss(this.htmlString);
+      this.htmlString = Cahe.#addClosingSlashes(this.htmlString);
+      this.htmlString = this.htmlString.replace(Cahe.#regexDataWidth, '');
       this.htmlString = await this.#minifyHtml(this.htmlString);
 
       archive.append(this.htmlString, { name: this.#indexFileName });
@@ -427,16 +527,26 @@ class Cahe {
       signale.success('Create archive');
 
       output.on('finish', async () => {
-        if (process.argv[3] === '-e') {
+        if (process.argv[3] === '-e' || process.argv[4] === '-e') {
           await Cahe.extractArchive(this.outputArchiveFilePath);
         }
-
-        if (process.argv[3] === '-w') {
-          this.emailConfig = await Cahe.createWebletter(
-            this.outputArchiveFilePath,
-            this.netlifyKey,
-            this.proxy,
-          );
+        console.log(this.imageSrcList);
+        if (process.argv[3] === '-w' || process.argv[4] === '-w') {
+          if (this.imageSrcList) {
+            this.emailConfig = await Cahe.createWebletter(
+              this.outputArchiveFilePath,
+              this.dirPath,
+              this.netlifyKey,
+              this.proxy,
+            );
+          } else {
+            this.emailConfig = await Cahe.createWebletter(
+              this.outputArchiveFilePath,
+              this.dirPath,
+              this.netlifyKey,
+              this.proxy,
+            );
+          }
         }
 
         this.#createProcessLog(this.archiveSize);

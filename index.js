@@ -3,7 +3,6 @@ import { existsSync } from 'fs';
 import {
   dirname,
   extname,
-  join,
   resolve,
 } from 'path';
 import { fileURLToPath } from 'url';
@@ -33,7 +32,7 @@ if (
   && existsSync(filePath)
   && extname(filePath.toLowerCase()) === '.zip'
 ) {
-  if (process.argv[3] === '-w') {
+  if (process.argv[3] === '-w' || process.argv[4] === '-w') {
     try {
       const webletter = await Cahe.createWebletter(
         filePath,
