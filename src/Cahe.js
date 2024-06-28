@@ -23,6 +23,10 @@ import juice from 'juice'; // https://github.com/Automattic/juice
 import sharp from 'sharp'; // https://sharp.pixelplumbing.com/
 import extract from 'extract-zip'; // https://github.com/max-mapper/extract-zip
 import { HttpsProxyAgent } from 'https-proxy-agent'; // https://github.com/TooTallNate/proxy-agents
+import { encodeEmojis } from 'encode-emojis'; // https://github.com/simbo/encode-emojis
+
+import specialCharacters from './utils/specialCharacters.js';
+import { htmlCombConfig, juiceConfig, pngConvertConfig } from './utils/configs.js';
 
 class Cahe {
   static #STEP_IMAGE_QUALITY = 5;
@@ -55,40 +59,17 @@ class Cahe {
 
   #cssLinkTag = `<link rel="stylesheet" href="${this.#cssFileName}.css" />`;
 
-  #htmlCombConfig = {
-    whitelist: [],
-    backend: [],
-    uglify: true,
-    removeHTMLComments: true,
-    removeCSSComments: true,
-    doNotRemoveHTMLCommentsWhoseOpeningTagContains: [
-      '[if',
-      '[endif',
-    ],
-    htmlCrushOpts: {
-      removeLineBreaks: true,
-      removeIndentations: true,
-      removeHTMLComment: true,
-      removeCSSComments: true,
-      lineLengthLimit: 500,
-    },
-    reportProgressFunc: null,
-    reportProgressFuncFrom: 0,
-    reportProgressFuncTo: 100,
-  };
-
-  #juiceConfig = {
-    preserveImportant: true,
-    resolveCSSVariables: true,
-  };
-
-  constructor(htmlFilePath, netlifyKey, proxy) {
+  constructor(htmlFilePath, netlifyKey, proxy, isWebVersion, isExtractZipFile) {
     this.filePath = htmlFilePath;
+
     this.dirPath = dirname(this.filePath);
     this.imagesDirPath = join(this.dirPath, this.#imageDirName);
     this.fileName = basename(this.filePath, '.html');
     this.cssFilePath = join(this.dirPath, `${this.#cssFileName}.css`);
     this.outputArchiveFilePath = resolve(this.dirPath, `${this.fileName}.zip`);
+
+    this.isWebVersion = isWebVersion;
+    this.isExtractZipFile = isExtractZipFile;
 
     this.netlifyKey = netlifyKey && netlifyKey;
     this.proxy = proxy;
@@ -158,6 +139,21 @@ class Cahe {
     return list;
   }
 
+  static replaceSpecialCharacters(htmlString) {
+    const regexSpecialCharacters = new RegExp(Object.keys(specialCharacters).join('|'), 'g');
+
+    const replaceSpecialCharacters = htmlString.replace(
+      regexSpecialCharacters,
+      (match) => specialCharacters[match],
+    );
+
+    const replaceEmojis = encodeEmojis(replaceSpecialCharacters);
+
+    signale.success('Replace special characters');
+
+    return replaceEmojis;
+  }
+
   static #addClosingSlashes(htmlString) {
     const elemTypes = [
       'area',
@@ -177,18 +173,20 @@ class Cahe {
     let outString = htmlString;
 
     for (let i = 0; i < elemTypes.length; i += 1) {
-      let index1 = 0;
-      let index2;
+      let indexOne = 0;
+      let indexTwo;
 
       inString = outString;
       outString = '';
 
-      // eslint-disable-next-line no-cond-assign
-      while ((index1 = inString.indexOf(`<${elemTypes[i]}`)) !== -1) {
-        // eslint-disable-next-line no-cond-assign
-        if ((index2 = inString.indexOf('>', index1)) !== -1 && inString.substring(index2 - 1, index2 + 1) !== '/>') {
-          outString += `${inString.substring(0, index2)} />`;
-          inString = inString.substring(index2 + 1);
+      while (indexOne !== -1) {
+        indexOne = inString.indexOf(`<${elemTypes[i]}`);
+
+        if (indexTwo !== -1 && inString.substring(indexTwo - 1, indexTwo + 1) !== '/>') {
+          indexTwo = inString.indexOf('>', indexOne);
+
+          outString += `${inString.substring(0, indexTwo)} />`;
+          inString = inString.substring(indexTwo + 1);
         } else {
           break;
         }
@@ -219,7 +217,7 @@ class Cahe {
   static async #convertImage(imagePath) {
     try {
       const convertedImage = await sharp(imagePath)
-        .toFormat('png', { compressionLevel: 0, palette: true, progressive: true })
+        .toFormat('png', pngConvertConfig)
         .sharpen()
         .toBuffer();
 
@@ -280,55 +278,6 @@ class Cahe {
     }
   }
 
-  // static async createWebletter(archiveFilePath, netlifyKey, proxy) {
-  //   try {
-  //     if (!netlifyKey) throw new Error('Netlify key is missing');
-
-  //     const dirPath = dirname(archiveFilePath);
-  //     const configEmailPath = join(dirPath, Cahe.#configEmailFileName);
-
-  //     const emailConfig = existsSync(configEmailPath)
-  //       ? JSON.parse(readFileSync(
-  //         configEmailPath,
-  //         'utf-8',
-  //       ))
-  //       : {};
-
-  //     const { siteId } = emailConfig;
-  //     const stream = createReadStream(archiveFilePath);
-  //     const proxyAgent = proxy && new HttpsProxyAgent(proxy);
-
-  //     const url = siteId
-  //       ? `https://api.netlify.com/api/v1/sites/${siteId}/deploys`
-  //       : 'https://api.netlify.com/api/v1/sites';
-
-  //     const res = await fetch(url, {
-  //       method: 'POST',
-  //       agent: proxy && proxyAgent,
-  //       headers: {
-  //         'Content-Type': 'application/zip',
-  //         Authorization: `Bearer ${netlifyKey}`,
-  //       },
-  //       body: stream,
-  //     });
-
-  //     if (!siteId) {
-  //       const { id, subdomain } = await res.json();
-
-  //       emailConfig.name = basename(dirPath);
-  //       emailConfig.siteId = id;
-  //       emailConfig.webletterUrl = `https://${subdomain}.netlify.app`;
-
-  //       writeFileSync(configEmailPath, JSON.stringify(emailConfig, null, 2));
-  //     }
-
-  //     signale.success('Create webletter');
-
-  //     return emailConfig;
-  //   } catch (error) {
-  //     return Cahe.#stopWithError(error);
-  //   }
-  // }
   static async createWebletter(file, outputPath, netlifyKey, proxy) {
     try {
       if (!netlifyKey) throw new Error('Netlify key is missing');
@@ -404,11 +353,11 @@ class Cahe {
 
       if (this.cssString) {
         result = this.#removeCssLinkTag(result);
-        result = juice.inlineContent(result, this.cssString, this.#juiceConfig);
+        result = juice.inlineContent(result, this.cssString, juiceConfig);
       } else {
         signale.warn('CSS file not found');
 
-        result = juice(result, this.#juiceConfig);
+        result = juice(result, juiceConfig);
       }
 
       signale.success('Inline CSS');
@@ -423,7 +372,7 @@ class Cahe {
     try {
       const { result, log } = comb(
         htmlString,
-        this.#htmlCombConfig,
+        htmlCombConfig,
       );
 
       signale.success('Minify HTML');
@@ -509,8 +458,9 @@ class Cahe {
 
       this.htmlString = Cahe.#trimHrefLink(this.htmlString);
       this.htmlString = await this.#addInlineCss(this.htmlString);
-      this.htmlString = Cahe.#addClosingSlashes(this.htmlString);
+      // this.htmlString = Cahe.#addClosingSlashes(this.htmlString);
       this.htmlString = this.htmlString.replace(Cahe.#regexDataWidth, '');
+      this.htmlString = Cahe.replaceSpecialCharacters(this.htmlString);
       this.htmlString = await this.#minifyHtml(this.htmlString);
 
       archive.append(this.htmlString, { name: this.#indexFileName });
@@ -527,11 +477,11 @@ class Cahe {
       signale.success('Create archive');
 
       output.on('finish', async () => {
-        if (process.argv[3] === '-e' || process.argv[4] === '-e') {
+        if (this.isExtractZipFile) {
           await Cahe.extractArchive(this.outputArchiveFilePath);
         }
-        console.log(this.imageSrcList);
-        if (process.argv[3] === '-w' || process.argv[4] === '-w') {
+
+        if (this.isWebVersion) {
           if (this.imageSrcList) {
             this.emailConfig = await Cahe.createWebletter(
               this.outputArchiveFilePath,

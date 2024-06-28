@@ -8,6 +8,9 @@ import {
 import { fileURLToPath } from 'url';
 import signale from 'signale';
 import dotenv from 'dotenv'; // https://github.com/motdotla/dotenv
+import { program } from 'commander'; // https://github.com/tj/commander.js
+
+// eslint-disable-next-line import/no-named-as-default, import/no-named-as-default-member
 import Cahe from './src/Cahe.js';
 
 const filePath = process.argv[2];
@@ -15,13 +18,27 @@ const scriptPath = dirname(fileURLToPath(import.meta.url));
 
 dotenv.config({ path: resolve(scriptPath, '.env') });
 
+program
+  .option('-w, --web-version')
+  .option('-e, --extract-zip-file');
+
+program.parse();
+
+const options = program.opts();
+
 if (
   filePath
   && existsSync(filePath)
   && extname(filePath.toLowerCase()) === '.html'
 ) {
   try {
-    const cahe = new Cahe(filePath, process.env.NETLIFY_KEY, process.env.PROXY);
+    const cahe = new Cahe(
+      filePath,
+      process.env.NETLIFY_KEY,
+      process.env.PROXY,
+      options.webVersion,
+      options.extractZipFile,
+    );
 
     await cahe.archiveContent();
   } catch (error) {
@@ -32,10 +49,11 @@ if (
   && existsSync(filePath)
   && extname(filePath.toLowerCase()) === '.zip'
 ) {
-  if (process.argv[3] === '-w' || process.argv[4] === '-w') {
+  if (options.webVersion) {
     try {
       const webletter = await Cahe.createWebletter(
         filePath,
+        dirname(filePath),
         process.env.NETLIFY_KEY,
         process.env.PROXY,
       );

@@ -29,8 +29,10 @@
   "dependencies": {
     "archiver": "^7.0.1",
     "clipboardy": "^4.0.0",
+    "commander": "^12.1.0",
     "dotenv": "^16.4.5",
     "email-comb": "^7.0.21",
+    "encode-emojis": "^1.0.2",
     "extract-zip": "^2.0.1",
     "https-proxy-agent": "^7.0.4",
     "juice": "^10.0.0",
