@@ -47,6 +47,8 @@ class Cahe {
 
   static #configEmailFileName = 'config.json';
 
+  static #utfMetaTag = '<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />';
+
   #COMPRESSION_RATIO = 8;
 
   imagesSum = 0;
@@ -147,11 +149,12 @@ class Cahe {
       (match) => specialCharacters[match],
     );
 
-    const replaceEmojis = encodeEmojis(replaceSpecialCharacters);
+    // const replaceEmojis = encodeEmojis(replaceSpecialCharacters);
 
     signale.success('Replace special characters');
 
-    return replaceEmojis;
+    // return replaceEmojis;
+    return replaceSpecialCharacters;
   }
 
   static #addClosingSlashes(htmlString) {
@@ -195,6 +198,10 @@ class Cahe {
       outString += inString;
     }
     return outString;
+  }
+
+  static checkMetaTags(htmlString) {
+    if (!htmlString.includes(this.#utfMetaTag)) signale.warn('Meta tag "Content-Type" missing');
   }
 
   static async #resizeImage(imagePath, width) {
@@ -312,7 +319,7 @@ class Cahe {
       if (!siteId) {
         const { id, subdomain } = await res.json();
 
-        emailConfig.name = basename(outputPath);
+        emailConfig.name = basename(resolve(outputPath));
         emailConfig.siteId = id;
         emailConfig.webletterUrl = `https://${subdomain}.netlify.app`;
 
@@ -455,6 +462,8 @@ class Cahe {
       } else {
         signale.warn('Images directory is missing');
       }
+
+      Cahe.checkMetaTags(this.htmlString);
 
       this.htmlString = Cahe.#trimHrefLink(this.htmlString);
       this.htmlString = await this.#addInlineCss(this.htmlString);
