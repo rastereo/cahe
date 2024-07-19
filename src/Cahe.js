@@ -149,12 +149,12 @@ class Cahe {
       (match) => specialCharacters[match],
     );
 
-    // const replaceEmojis = encodeEmojis(replaceSpecialCharacters);
+    const replaceEmojis = encodeEmojis(replaceSpecialCharacters);
 
     signale.success('Replace special characters');
 
-    // return replaceEmojis;
-    return replaceSpecialCharacters;
+    return replaceEmojis;
+    // return replaceSpecialCharacters;
   }
 
   static #addClosingSlashes(htmlString) {
