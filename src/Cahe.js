@@ -49,6 +49,8 @@ class Cahe {
 
   static #utfMetaTag = '<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />';
 
+  static HTMLContentType = 'text/html';
+
   #COMPRESSION_RATIO = 8;
 
   imagesSum = 0;
@@ -97,15 +99,35 @@ class Cahe {
     process.exit(1);
   }
 
-  static #trimHrefLink(htmlString) {
+  static #trimAndCheckHrefLink(htmlString, proxy) {
+    const proxyAgent = proxy && new HttpsProxyAgent(proxy);
     const matches = Array.from(htmlString.matchAll(this.#regexLinkHref));
 
     let result = htmlString;
 
-    matches.forEach((href) => {
-      const url = href[1];
+    const checkedLinkList = [];
 
-      result = result.replace(url, url.trim());
+    matches.forEach(async (href) => {
+      const url = href[1];
+      const trimUrl = url.trim();
+
+      if (url.startsWith('http') && !checkedLinkList.includes(url)) {
+        try {
+          checkedLinkList.push(trimUrl);
+
+          const response = await fetch(trimUrl, { agent: proxy && proxyAgent });
+          const { ok, status, statusText } = response;
+
+          const isHTMLContentType = response.headers.get('content-type').startsWith(this.HTMLContentType);
+
+          if (!ok || status !== 200 || !isHTMLContentType) throw new Error();
+          else signale.success(url, statusText, status);
+        } catch (error) {
+          signale.error(`Link unavailable: ${url}`);
+        }
+      }
+
+      result = result.replace(url, trimUrl);
     });
 
     return result;
@@ -155,49 +177,6 @@ class Cahe {
 
     return replaceEmojis;
     // return replaceSpecialCharacters;
-  }
-
-  static #addClosingSlashes(htmlString) {
-    const elemTypes = [
-      'area',
-      'base',
-      'br',
-      'col',
-      'embed',
-      'hr',
-      'img',
-      'input',
-      'link',
-      'meta',
-      'param',
-    ];
-
-    let inString;
-    let outString = htmlString;
-
-    for (let i = 0; i < elemTypes.length; i += 1) {
-      let indexOne = 0;
-      let indexTwo;
-
-      inString = outString;
-      outString = '';
-
-      while (indexOne !== -1) {
-        indexOne = inString.indexOf(`<${elemTypes[i]}`);
-
-        if (indexTwo !== -1 && inString.substring(indexTwo - 1, indexTwo + 1) !== '/>') {
-          indexTwo = inString.indexOf('>', indexOne);
-
-          outString += `${inString.substring(0, indexTwo)} />`;
-          inString = inString.substring(indexTwo + 1);
-        } else {
-          break;
-        }
-      }
-
-      outString += inString;
-    }
-    return outString;
   }
 
   static checkMetaTags(htmlString) {
@@ -299,7 +278,6 @@ class Cahe {
 
       const { siteId } = emailConfig;
       const proxyAgent = proxy && new HttpsProxyAgent(proxy);
-
       const body = Buffer.isBuffer(file) ? file : createReadStream(file);
 
       const url = siteId
@@ -465,9 +443,8 @@ class Cahe {
 
       Cahe.checkMetaTags(this.htmlString);
 
-      this.htmlString = Cahe.#trimHrefLink(this.htmlString);
+      this.htmlString = await Cahe.#trimAndCheckHrefLink(this.htmlString, this.proxy);
       this.htmlString = await this.#addInlineCss(this.htmlString);
-      // this.htmlString = Cahe.#addClosingSlashes(this.htmlString);
       this.htmlString = this.htmlString.replace(Cahe.#regexDataWidth, '');
       this.htmlString = Cahe.replaceSpecialCharacters(this.htmlString);
       this.htmlString = await this.#minifyHtml(this.htmlString);
@@ -477,11 +454,11 @@ class Cahe {
       output.on('error', (error) => Cahe.#stopWithError(error.message));
       archive.on('error', (error) => Cahe.#stopWithError(error.message));
 
-      await archive.finalize();
-
       this.archiveSize = archive.pointer();
 
       clipboard.writeSync(this.outputArchiveFilePath);
+
+      await archive.finalize();
 
       signale.success('Create archive');
 
@@ -511,7 +488,7 @@ class Cahe {
         this.#createProcessLog(this.archiveSize);
       });
 
-      return this;
+      return output;
     } catch (error) {
       return Cahe.#stopWithError(error);
     }
