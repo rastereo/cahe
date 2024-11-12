@@ -36,7 +36,6 @@
     "extract-zip": "^2.0.1",
     "https-proxy-agent": "^7.0.5",
     "juice": "^10.0.0",
-    "node-fetch": "^3.3.2",
     "sharp": "^0.33.3",
     "signale": "^1.4.0"
   }

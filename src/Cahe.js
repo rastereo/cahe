@@ -1,5 +1,4 @@
 import {
-  createReadStream,
   createWriteStream,
   existsSync,
   readFileSync,
@@ -13,7 +12,6 @@ import {
   join,
   resolve,
 } from 'path';
-import fetch from 'node-fetch'; // https://github.com/node-fetch/node-fetch;
 // eslint-disable-next-line import/no-unresolved
 import { comb } from 'email-comb'; // https://codsen.com/os/email-comb
 import archiver from 'archiver'; // https://www.archiverjs.com/
@@ -51,6 +49,10 @@ class Cahe {
 
   static HTMLContentType = 'text/html';
 
+  static pdfContentType = 'application/pdf';
+
+  static streamContentType = 'application/octet-stream';
+
   #COMPRESSION_RATIO = 8;
 
   imagesSum = 0;
@@ -63,7 +65,7 @@ class Cahe {
 
   #cssLinkTag = `<link rel="stylesheet" href="${this.#cssFileName}.css" />`;
 
-  constructor(htmlFilePath, netlifyKey, proxy, isWebVersion, isExtractZipFile) {
+  constructor(htmlFilePath, webletterUrl, webletterKey, proxy, isWebVersion, isExtractZipFile) {
     this.filePath = htmlFilePath;
 
     this.dirPath = dirname(this.filePath);
@@ -75,7 +77,8 @@ class Cahe {
     this.isWebVersion = isWebVersion;
     this.isExtractZipFile = isExtractZipFile;
 
-    this.netlifyKey = netlifyKey && netlifyKey;
+    this.webletterUrl = webletterUrl;
+    this.webletterKey = webletterKey;
     this.proxy = proxy;
 
     this.htmlString = this.filePath && readFileSync(
@@ -118,9 +121,17 @@ class Cahe {
           const response = await fetch(trimUrl, { agent: proxy && proxyAgent });
           const { ok, status, statusText } = response;
 
-          const isHTMLContentType = response.headers.get('content-type').startsWith(this.HTMLContentType);
+          const contentType = response.headers.get('content-type');
 
-          if (!ok || status !== 200 || !isHTMLContentType) throw new Error();
+          if (
+            !ok
+            || status !== 200
+            || (
+              !contentType.startsWith(this.HTMLContentType)
+              && !contentType.startsWith(this.pdfContentType)
+              && !contentType.startsWith(this.streamContentType)
+            )
+          ) throw new Error();
           else signale.success(url, statusText, status);
         } catch (error) {
           signale.error(`Link unavailable: ${url}`);
@@ -187,7 +198,7 @@ class Cahe {
     try {
       const resizeImage = await sharp(imagePath)
         .resize({ width })
-        .sharpen()
+        // .sharpen()
         .toBuffer();
 
       signale.success(`Image ${basename(imagePath)} resized`);
@@ -204,7 +215,7 @@ class Cahe {
     try {
       const convertedImage = await sharp(imagePath)
         .toFormat('png', pngConvertConfig)
-        .sharpen()
+        // .sharpen()
         .toBuffer();
 
       signale.success(`Image ${basename(imagePath)} converted`);
@@ -226,7 +237,10 @@ class Cahe {
       if (format === 'jpg') {
         compressedImage = await sharp(imageBuffer).jpeg({ quality }).toBuffer();
       } else if (format === 'png') {
-        compressedImage = await sharp(imageBuffer).png({ quality }).sharpen().toBuffer();
+        compressedImage = await sharp(imageBuffer)
+          .png({ quality })
+          // .sharpen()
+          .toBuffer();
       } else {
         return null;
       }
@@ -264,9 +278,9 @@ class Cahe {
     }
   }
 
-  static async createWebletter(file, outputPath, netlifyKey, proxy) {
+  static async createWebletter(filePath, outputPath, webletterUrl, webletterKey, proxy) {
     try {
-      if (!netlifyKey) throw new Error('Netlify key is missing');
+      if (!webletterKey) throw new Error('Webletter token is missing');
 
       const configEmailPath = join(outputPath, Cahe.#configEmailFileName);
       const emailConfig = existsSync(configEmailPath)
@@ -276,39 +290,52 @@ class Cahe {
         ))
         : {};
 
-      const { siteId } = emailConfig;
+      const { id } = emailConfig;
       const proxyAgent = proxy && new HttpsProxyAgent(proxy);
-      const body = Buffer.isBuffer(file) ? file : createReadStream(file);
 
-      const url = siteId
-        ? `https://api.netlify.com/api/v1/sites/${siteId}/deploys`
-        : 'https://api.netlify.com/api/v1/sites';
+      const formData = new FormData();
 
-      const res = await fetch(url, {
-        method: 'POST',
-        agent: proxy && proxyAgent,
-        headers: {
-          'Content-Type': 'application/zip',
-          Authorization: `Bearer ${netlifyKey}`,
+      const blob = new Blob(
+        [readFileSync(filePath)],
+        { type: 'application/zip' },
+      );
+
+      formData.append(
+        'file',
+        blob,
+        basename(filePath),
+      );
+
+      const url = id
+        ? `${webletterUrl}/api/${id}`
+        : `${webletterUrl}/api/upload`;
+
+      const res = await fetch(
+        url,
+        {
+          method: id ? 'PUT' : 'POST',
+          agent: proxy && proxyAgent,
+          headers: {
+            Authorization: webletterKey,
+          },
+          body: formData,
         },
-        body,
-      });
+      );
 
-      if (!siteId) {
-        const { id, subdomain } = await res.json();
+      const { data } = await res.json();
 
-        emailConfig.name = basename(resolve(outputPath));
-        emailConfig.siteId = id;
-        emailConfig.webletterUrl = `https://${subdomain}.netlify.app`;
+      const newConfig = Object.assign(data, emailConfig);
 
-        writeFileSync(configEmailPath, JSON.stringify(emailConfig, null, 2));
-      }
+      newConfig.webletterUrl = `${webletterUrl}/${newConfig.id}`;
+
+      writeFileSync(configEmailPath, JSON.stringify(newConfig, null, 2));
 
       signale.success('Create webletter');
 
-      return emailConfig;
+      return newConfig;
     } catch (error) {
-      return Cahe.#stopWithError(error);
+      console.log(JSON.parse(error));
+      return Cahe.#stopWithError(error.message);
     }
   }
 
@@ -378,7 +405,7 @@ class Cahe {
         if (dirname(path) === this.#imageDirName && existsSync(imagePath)) {
           const { width, format } = await sharp(imagePath).metadata();
 
-          if (gateWidth && width > gateWidth) {
+          if (gateWidth && width > gateWidth && format !== 'gif') {
             let resizedImage = await Cahe.#resizeImage(imagePath, gateWidth);
 
             if (Buffer.byteLength(resizedImage) > Cahe.#GATE_IMAGE_SIZE) {
@@ -472,14 +499,16 @@ class Cahe {
             this.emailConfig = await Cahe.createWebletter(
               this.outputArchiveFilePath,
               this.dirPath,
-              this.netlifyKey,
+              this.webletterUrl,
+              this.webletterKey,
               this.proxy,
             );
           } else {
             this.emailConfig = await Cahe.createWebletter(
               this.outputArchiveFilePath,
               this.dirPath,
-              this.netlifyKey,
+              this.webletterUrl,
+              this.webletterKey,
               this.proxy,
             );
           }
