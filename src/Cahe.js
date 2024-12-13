@@ -102,7 +102,7 @@ class Cahe {
     process.exit(1);
   }
 
-  static #trimAndCheckHrefLink(htmlString, proxy) {
+  static async #trimAndCheckHrefLink(htmlString, proxy) {
     const proxyAgent = proxy && new HttpsProxyAgent(proxy);
     const matches = Array.from(htmlString.matchAll(this.#regexLinkHref));
 
@@ -110,7 +110,7 @@ class Cahe {
 
     const checkedLinkList = [];
 
-    matches.forEach(async (href) => {
+    const checkedLInkList = matches.map(async (href) => {
       const url = href[1];
       const trimUrl = url.trim();
 
@@ -118,6 +118,7 @@ class Cahe {
         try {
           checkedLinkList.push(trimUrl);
 
+          // eslint-disable-next-line no-await-in-loop
           const response = await fetch(trimUrl, { agent: proxy && proxyAgent });
           const { ok, status, statusText } = response;
 
@@ -140,6 +141,8 @@ class Cahe {
 
       result = result.replace(url, trimUrl);
     });
+
+    await Promise.all(checkedLInkList);
 
     return result;
   }
@@ -307,8 +310,8 @@ class Cahe {
       );
 
       const url = id
-        ? `${webletterUrl}/api/${id}`
-        : `${webletterUrl}/api/upload`;
+        ? `${webletterUrl}/api/webletters/${id}`
+        : `${webletterUrl}/api/webletters/upload`;
 
       const res = await fetch(
         url,
