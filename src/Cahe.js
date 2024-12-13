@@ -1,5 +1,4 @@
 import {
-  createReadStream,
   createWriteStream,
   existsSync,
   readFileSync,
@@ -13,7 +12,6 @@ import {
   join,
   resolve,
 } from 'path';
-import fetch from 'node-fetch'; // https://github.com/node-fetch/node-fetch;
 // eslint-disable-next-line import/no-unresolved
 import { comb } from 'email-comb'; // https://codsen.com/os/email-comb
 import archiver from 'archiver'; // https://www.archiverjs.com/
@@ -49,6 +47,12 @@ class Cahe {
 
   static #utfMetaTag = '<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />';
 
+  static HTMLContentType = 'text/html';
+
+  static pdfContentType = 'application/pdf';
+
+  static streamContentType = 'application/octet-stream';
+
   #COMPRESSION_RATIO = 8;
 
   imagesSum = 0;
@@ -61,7 +65,7 @@ class Cahe {
 
   #cssLinkTag = `<link rel="stylesheet" href="${this.#cssFileName}.css" />`;
 
-  constructor(htmlFilePath, netlifyKey, proxy, isWebVersion, isExtractZipFile) {
+  constructor(htmlFilePath, webletterUrl, webletterKey, proxy, isWebVersion, isExtractZipFile) {
     this.filePath = htmlFilePath;
 
     this.dirPath = dirname(this.filePath);
@@ -73,7 +77,8 @@ class Cahe {
     this.isWebVersion = isWebVersion;
     this.isExtractZipFile = isExtractZipFile;
 
-    this.netlifyKey = netlifyKey && netlifyKey;
+    this.webletterUrl = webletterUrl;
+    this.webletterKey = webletterKey;
     this.proxy = proxy;
 
     this.htmlString = this.filePath && readFileSync(
@@ -97,16 +102,47 @@ class Cahe {
     process.exit(1);
   }
 
-  static #trimHrefLink(htmlString) {
+  static async #trimAndCheckHrefLink(htmlString, proxy) {
+    const proxyAgent = proxy && new HttpsProxyAgent(proxy);
     const matches = Array.from(htmlString.matchAll(this.#regexLinkHref));
 
     let result = htmlString;
 
-    matches.forEach((href) => {
-      const url = href[1];
+    const checkedLinkList = [];
 
-      result = result.replace(url, url.trim());
+    const checkedLInkList = matches.map(async (href) => {
+      const url = href[1];
+      const trimUrl = url.trim();
+
+      if (url.startsWith('http') && !checkedLinkList.includes(url)) {
+        try {
+          checkedLinkList.push(trimUrl);
+
+          // eslint-disable-next-line no-await-in-loop
+          const response = await fetch(trimUrl, { agent: proxy && proxyAgent });
+          const { ok, status, statusText } = response;
+
+          const contentType = response.headers.get('content-type');
+
+          if (
+            !ok
+            || status !== 200
+            || (
+              !contentType.startsWith(this.HTMLContentType)
+              && !contentType.startsWith(this.pdfContentType)
+              && !contentType.startsWith(this.streamContentType)
+            )
+          ) throw new Error();
+          else signale.success(url, statusText, status);
+        } catch (error) {
+          signale.error(`Link unavailable: ${url}`);
+        }
+      }
+
+      result = result.replace(url, trimUrl);
     });
+
+    await Promise.all(checkedLInkList);
 
     return result;
   }
@@ -149,55 +185,12 @@ class Cahe {
       (match) => specialCharacters[match],
     );
 
-    // const replaceEmojis = encodeEmojis(replaceSpecialCharacters);
+    const replaceEmojis = encodeEmojis(replaceSpecialCharacters);
 
     signale.success('Replace special characters');
 
-    // return replaceEmojis;
-    return replaceSpecialCharacters;
-  }
-
-  static #addClosingSlashes(htmlString) {
-    const elemTypes = [
-      'area',
-      'base',
-      'br',
-      'col',
-      'embed',
-      'hr',
-      'img',
-      'input',
-      'link',
-      'meta',
-      'param',
-    ];
-
-    let inString;
-    let outString = htmlString;
-
-    for (let i = 0; i < elemTypes.length; i += 1) {
-      let indexOne = 0;
-      let indexTwo;
-
-      inString = outString;
-      outString = '';
-
-      while (indexOne !== -1) {
-        indexOne = inString.indexOf(`<${elemTypes[i]}`);
-
-        if (indexTwo !== -1 && inString.substring(indexTwo - 1, indexTwo + 1) !== '/>') {
-          indexTwo = inString.indexOf('>', indexOne);
-
-          outString += `${inString.substring(0, indexTwo)} />`;
-          inString = inString.substring(indexTwo + 1);
-        } else {
-          break;
-        }
-      }
-
-      outString += inString;
-    }
-    return outString;
+    return replaceEmojis;
+    // return replaceSpecialCharacters;
   }
 
   static checkMetaTags(htmlString) {
@@ -208,7 +201,7 @@ class Cahe {
     try {
       const resizeImage = await sharp(imagePath)
         .resize({ width })
-        .sharpen()
+        // .sharpen()
         .toBuffer();
 
       signale.success(`Image ${basename(imagePath)} resized`);
@@ -225,7 +218,7 @@ class Cahe {
     try {
       const convertedImage = await sharp(imagePath)
         .toFormat('png', pngConvertConfig)
-        .sharpen()
+        // .sharpen()
         .toBuffer();
 
       signale.success(`Image ${basename(imagePath)} converted`);
@@ -247,7 +240,10 @@ class Cahe {
       if (format === 'jpg') {
         compressedImage = await sharp(imageBuffer).jpeg({ quality }).toBuffer();
       } else if (format === 'png') {
-        compressedImage = await sharp(imageBuffer).png({ quality }).sharpen().toBuffer();
+        compressedImage = await sharp(imageBuffer)
+          .png({ quality })
+          // .sharpen()
+          .toBuffer();
       } else {
         return null;
       }
@@ -285,9 +281,9 @@ class Cahe {
     }
   }
 
-  static async createWebletter(file, outputPath, netlifyKey, proxy) {
+  static async createWebletter(filePath, outputPath, webletterUrl, webletterKey, proxy) {
     try {
-      if (!netlifyKey) throw new Error('Netlify key is missing');
+      if (!webletterKey) throw new Error('Webletter token is missing');
 
       const configEmailPath = join(outputPath, Cahe.#configEmailFileName);
       const emailConfig = existsSync(configEmailPath)
@@ -297,40 +293,52 @@ class Cahe {
         ))
         : {};
 
-      const { siteId } = emailConfig;
+      const { id } = emailConfig;
       const proxyAgent = proxy && new HttpsProxyAgent(proxy);
 
-      const body = Buffer.isBuffer(file) ? file : createReadStream(file);
+      const formData = new FormData();
 
-      const url = siteId
-        ? `https://api.netlify.com/api/v1/sites/${siteId}/deploys`
-        : 'https://api.netlify.com/api/v1/sites';
+      const blob = new Blob(
+        [readFileSync(filePath)],
+        { type: 'application/zip' },
+      );
 
-      const res = await fetch(url, {
-        method: 'POST',
-        agent: proxy && proxyAgent,
-        headers: {
-          'Content-Type': 'application/zip',
-          Authorization: `Bearer ${netlifyKey}`,
+      formData.append(
+        'file',
+        blob,
+        basename(filePath),
+      );
+
+      const url = id
+        ? `${webletterUrl}/api/webletters/${id}`
+        : `${webletterUrl}/api/webletters/upload`;
+
+      const res = await fetch(
+        url,
+        {
+          method: id ? 'PUT' : 'POST',
+          agent: proxy && proxyAgent,
+          headers: {
+            Authorization: webletterKey,
+          },
+          body: formData,
         },
-        body,
-      });
+      );
 
-      if (!siteId) {
-        const { id, subdomain } = await res.json();
+      const { data } = await res.json();
 
-        emailConfig.name = basename(resolve(outputPath));
-        emailConfig.siteId = id;
-        emailConfig.webletterUrl = `https://${subdomain}.netlify.app`;
+      const newConfig = Object.assign(data, emailConfig);
 
-        writeFileSync(configEmailPath, JSON.stringify(emailConfig, null, 2));
-      }
+      newConfig.webletterUrl = `${webletterUrl}/${newConfig.id}`;
+
+      writeFileSync(configEmailPath, JSON.stringify(newConfig, null, 2));
 
       signale.success('Create webletter');
 
-      return emailConfig;
+      return newConfig;
     } catch (error) {
-      return Cahe.#stopWithError(error);
+      console.log(JSON.parse(error));
+      return Cahe.#stopWithError(error.message);
     }
   }
 
@@ -400,7 +408,7 @@ class Cahe {
         if (dirname(path) === this.#imageDirName && existsSync(imagePath)) {
           const { width, format } = await sharp(imagePath).metadata();
 
-          if (gateWidth && width > gateWidth) {
+          if (gateWidth && width > gateWidth && format !== 'gif') {
             let resizedImage = await Cahe.#resizeImage(imagePath, gateWidth);
 
             if (Buffer.byteLength(resizedImage) > Cahe.#GATE_IMAGE_SIZE) {
@@ -465,9 +473,8 @@ class Cahe {
 
       Cahe.checkMetaTags(this.htmlString);
 
-      this.htmlString = Cahe.#trimHrefLink(this.htmlString);
+      this.htmlString = await Cahe.#trimAndCheckHrefLink(this.htmlString, this.proxy);
       this.htmlString = await this.#addInlineCss(this.htmlString);
-      // this.htmlString = Cahe.#addClosingSlashes(this.htmlString);
       this.htmlString = this.htmlString.replace(Cahe.#regexDataWidth, '');
       this.htmlString = Cahe.replaceSpecialCharacters(this.htmlString);
       this.htmlString = await this.#minifyHtml(this.htmlString);
@@ -477,11 +484,11 @@ class Cahe {
       output.on('error', (error) => Cahe.#stopWithError(error.message));
       archive.on('error', (error) => Cahe.#stopWithError(error.message));
 
-      await archive.finalize();
-
       this.archiveSize = archive.pointer();
 
       clipboard.writeSync(this.outputArchiveFilePath);
+
+      await archive.finalize();
 
       signale.success('Create archive');
 
@@ -495,14 +502,16 @@ class Cahe {
             this.emailConfig = await Cahe.createWebletter(
               this.outputArchiveFilePath,
               this.dirPath,
-              this.netlifyKey,
+              this.webletterUrl,
+              this.webletterKey,
               this.proxy,
             );
           } else {
             this.emailConfig = await Cahe.createWebletter(
               this.outputArchiveFilePath,
               this.dirPath,
-              this.netlifyKey,
+              this.webletterUrl,
+              this.webletterKey,
               this.proxy,
             );
           }
@@ -511,7 +520,7 @@ class Cahe {
         this.#createProcessLog(this.archiveSize);
       });
 
-      return this;
+      return output;
     } catch (error) {
       return Cahe.#stopWithError(error);
     }

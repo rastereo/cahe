@@ -34,7 +34,8 @@ if (
   try {
     const cahe = new Cahe(
       filePath,
-      process.env.NETLIFY_KEY,
+      process.env.WEBLETTER_URL,
+      process.env.WEBLETTER_TOKEN,
       process.env.PROXY,
       options.webVersion,
       options.extractZipFile,
@@ -54,7 +55,8 @@ if (
       const webletter = await Cahe.createWebletter(
         filePath,
         dirname(filePath),
-        process.env.NETLIFY_KEY,
+        process.env.WEBLETTER_URL,
+        process.env.WEBLETTER_TOKEN,
         process.env.PROXY,
       );
 
