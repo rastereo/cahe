@@ -4,12 +4,13 @@
   "description": "create archive html email",
   "main": "index.js",
   "bin": {
-    "cahe": "./index.js"
+    "cahe": "./dist/index.js"
   },
   "type": "module",
   "scripts": {
-    "init": "chmod +x index.js && npm install -g",
-    "lint": "eslint"
+    "build": "tsc",
+    "init": "chmod +x ./dist/index.js && npm install -g",
+    "lint": "eslint ."
   },
   "repository": {
     "type": "git",
@@ -22,9 +23,17 @@
   },
   "homepage": "https://github.com/rastereo/cahe#readme",
   "devDependencies": {
-    "eslint": "^8.57.0",
+    "@eslint/js": "^9.18.0",
+    "@types/archiver": "^6.0.3",
+    "@types/signale": "^1.4.7",
+    "@typescript-eslint/eslint-plugin": "^8.20.0",
+    "@typescript-eslint/parser": "^8.20.0",
+    "eslint": "^8.57.1",
     "eslint-config-airbnb-base": "^15.0.0",
-    "eslint-plugin-import": "^2.29.1"
+    "eslint-config-prettier": "^10.0.1",
+    "eslint-plugin-import": "^2.29.1",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.20.0"
   },
   "dependencies": {
     "archiver": "^7.0.1",
@@ -33,9 +42,11 @@
     "dotenv": "^16.4.5",
     "email-comb": "^7.0.21",
     "encode-emojis": "^1.0.2",
+    "envalid": "^8.0.0",
     "extract-zip": "^2.0.1",
     "https-proxy-agent": "^7.0.5",
     "juice": "^10.0.0",
+    "node-fetch": "^3.3.2",
     "sharp": "^0.33.3",
     "signale": "^1.4.0"
   }
