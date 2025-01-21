@@ -12,15 +12,15 @@ import specialCharacters from './specialCharacters.js';
 import { htmlCombConfig, juiceConfig } from './configs.js';
 
 class HTMLUtils {
-  static regexLinkHref = /href="([^"]*)"/g;
+  private static regexLinkHref = /href="([^"]*)"/g;
 
-  static HTMLContentType = 'text/html';
+  private static HTMLContentType = 'text/html';
 
-  static pdfContentType = 'application/pdf';
+  private static pdfContentType = 'application/pdf';
 
-  static streamContentType = 'application/octet-stream';
+  private static streamContentType = 'application/octet-stream';
 
-  static utfMetaTag =
+  private static utfMetaTag =
     '<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />';
 
   private static handleError(error: unknown | Error): void {
@@ -53,7 +53,7 @@ class HTMLUtils {
 
           // eslint-disable-next-line no-await-in-loop
           const response = await fetch(trimUrl, { agent: proxyAgent });
-          const { ok, status, statusText } = response;
+          const { ok, status } = response;
 
           const contentType = response.headers.get('content-type');
 
@@ -66,7 +66,9 @@ class HTMLUtils {
               !contentType.startsWith(this.streamContentType))
           ) {
             throw new Error();
-          } else signale.success(url, statusText, status);
+          }
+
+          // signale.success(url, statusText, status);
         } catch {
           signale.error(`Link unavailable: ${url}`);
         }
@@ -142,8 +144,6 @@ class HTMLUtils {
       const { result, log } = comb(htmlString, htmlCombConfig);
 
       signale.success('Minify HTML');
-
-      // this.minifyHtmlLog = log;
 
       return { result, log };
     } catch (error) {

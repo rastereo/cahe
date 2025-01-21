@@ -1,10 +1,8 @@
 #!/usr/bin/env node
 import { existsSync } from 'fs';
 import { dirname, extname } from 'path';
-// import { fileURLToPath } from 'url';
 import signale from 'signale';
-// import dotenv from 'dotenv'; // https://github.com/motdotla/dotenv
-import { program } from 'commander'; // https://github.com/tj/commander.js
+import { program } from 'commander';
 
 // eslint-disable-next-line import/no-unresolved
 import Cahe from './Cahe.js';
@@ -19,7 +17,6 @@ program.parse();
 
 const options = program.opts();
 
-// async function createWebletterArchive() {
 if (
   filePath &&
   existsSync(filePath) &&
@@ -35,8 +32,11 @@ if (
       options.extractZipFile,
       env.COMPRESSION_RATIO,
       env.GATE_IMAGE_SIZE,
-      env.IMAGE_DIR_NAME,
+      env.HTML_FILE_NAME,
       env.CSS_FILE_NAME,
+      env.IMAGE_DIR_NAME,
+      env.EXTRACT_DIR_NAME,
+      env.CONFIG_EMAIL_NAME,
     );
 
     await cahe.archiveContent();
@@ -56,6 +56,7 @@ if (
         env.WEBLETTER_URL,
         env.WEBLETTER_TOKEN,
         env.PROXY,
+        env.CONFIG_EMAIL_NAME,
       );
 
       signale.info(`Webletter: ${webletter.webletterUrl}`);
@@ -63,13 +64,10 @@ if (
       signale.fatal(error);
     }
   } else {
-    Cahe.extractArchive(filePath);
+    Cahe.extractArchive(filePath, env.EXTRACT_DIR_NAME);
   }
 } else {
   signale.fatal(
     'The path to the HTML or ZIP file is either incorrect or missing. Please verify the path and ensure it is correctly specified.',
   );
 }
-// }
-
-// console.log(createWebletterArchive());

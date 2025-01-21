@@ -22,64 +22,57 @@ import ImageUtils from './utils/ImageUtils.js';
 import HTMLUtils from './utils/HTMLUtils.js';
 
 class Cahe {
-  // static #regexImageTag =
-  //   /<img\s[^>]*?src\s*=\s*['\\"]([^'\\"]*?)['\\"][^>]*?>/g;
+  private filePath: string;
 
-  static #extractDirName = 'build';
+  private dirPath: string;
 
-  static #configEmailFileName = 'config.json';
+  private imagesDirPath: string;
 
-  // #COMPRESSION_RATIO = 8;
+  private fileName: string;
 
-  imagesSum = 0;
+  private cssFilePath: string;
 
-  // #imageDirName = 'images';
+  private outputArchiveFilePath: string;
 
-  #indexFileName = 'index.html';
+  private isWebVersion: boolean;
 
-  filePath: string;
+  private isExtractZipFile: boolean;
 
-  dirPath: string;
+  private webletterUrl: string;
 
-  imagesDirPath: string;
+  private webletterKey: string;
 
-  fileName: string;
+  private proxy: string;
 
-  cssFilePath: string;
+  private htmlString: string;
 
-  outputArchiveFilePath: string;
+  private cssString: string | null;
 
-  isWebVersion: boolean;
+  private htmlOriginalSize: number;
 
-  isExtractZipFile: boolean;
+  private minifyHtmlLog: { cleanedLength: number };
 
-  webletterUrl: string;
+  private imageSrcList: { path: string; gateWidth?: number }[];
 
-  webletterKey: string;
+  private archiveSize: number;
 
-  proxy: string;
+  private emailConfig: { webletterUrl: string | null };
 
-  htmlString: string;
+  private gateImagesSize: number;
 
-  cssString: string | null;
+  private compressionRatio: number;
 
-  htmlOriginalSize: number;
+  private htmlFileName: string;
 
-  minifyHtmlLog: { cleanedLength: number };
+  private imageDirName: string;
 
-  imageSrcList: { path: string; gateWidth?: number }[];
+  private cssFileName: string;
 
-  archiveSize: number;
+  private extractDirName: string;
 
-  emailConfig: { webletterUrl: string | null };
+  private configEmailFileName: string;
 
-  gateImagesSize: number;
-
-  compressionRatio: number;
-
-  imageDirName: string;
-
-  cssFileName: string;
+  private imagesSum: number;
 
   constructor(
     htmlFilePath: string,
@@ -90,35 +83,47 @@ class Cahe {
     isExtractZipFile: boolean,
     compressionRatio: number,
     gateImagesSize: number,
-    imageDirName: string,
+    htmlFileName: string,
     cssFileName: string,
+    imageDirName: string,
+    extractDirName: string,
+    configEmailFileName: string,
   ) {
     this.filePath = htmlFilePath;
     this.dirPath = dirname(this.filePath);
+    this.htmlFileName = htmlFileName;
+    this.cssFileName = cssFileName;
     this.imageDirName = imageDirName;
     this.imagesDirPath = join(this.dirPath, imageDirName);
     this.fileName = basename(this.filePath, '.html');
-    this.cssFileName = cssFileName;
-    this.cssFilePath = join(this.dirPath, `${this.cssFileName}.css`);
+    this.cssFilePath = join(this.dirPath, this.cssFileName);
     this.outputArchiveFilePath = resolve(this.dirPath, `${this.fileName}.zip`);
     this.isWebVersion = isWebVersion;
     this.isExtractZipFile = isExtractZipFile;
     this.webletterUrl = webletterUrl;
     this.webletterKey = webletterKey;
     this.proxy = proxy;
-    this.htmlString =
-      this.filePath && readFileSync(resolve(this.filePath), 'utf-8');
-    this.cssString = existsSync(this.cssFilePath)
-      ? readFileSync(resolve(this.cssFilePath), 'utf-8')
-      : null;
-    this.htmlOriginalSize = Buffer.byteLength(this.htmlString);
-    this.archiveContent = this.archiveContent.bind(this);
     this.minifyHtmlLog = { cleanedLength: 0 };
     this.imageSrcList = [];
     this.archiveSize = 0;
     this.emailConfig = { webletterUrl: null };
     this.gateImagesSize = gateImagesSize;
     this.compressionRatio = compressionRatio;
+    this.extractDirName = extractDirName;
+    this.configEmailFileName = configEmailFileName;
+
+    this.htmlString =
+      this.filePath && readFileSync(resolve(this.filePath), 'utf-8');
+
+    this.cssString = existsSync(this.cssFilePath)
+      ? readFileSync(resolve(this.cssFilePath), 'utf-8')
+      : null;
+
+    this.htmlOriginalSize = Buffer.byteLength(this.htmlString);
+
+    this.archiveContent = this.archiveContent.bind(this);
+
+    this.imagesSum = 0;
 
     if (!this.htmlString) {
       throw new Error(
@@ -127,22 +132,25 @@ class Cahe {
     }
   }
 
-  static #stopWithError(errorMessage: string | unknown): void {
+  static stopWithError(errorMessage: string | unknown): void {
     signale.fatal(errorMessage);
     process.exit(1);
   }
 
-  static async extractArchive(archivePath: string) {
+  static async extractArchive(
+    archivePath: string,
+    extractDirName: string,
+  ): Promise<void> {
     try {
       const absolutePath = resolve(archivePath);
 
-      const buildPath = join(dirname(absolutePath), this.#extractDirName);
+      const buildPath = join(dirname(absolutePath), extractDirName);
 
       await extract(absolutePath, { dir: buildPath });
 
       signale.success(`Archive extract to ${buildPath} directory`);
     } catch (error) {
-      this.#stopWithError(error);
+      this.stopWithError(error);
     }
   }
 
@@ -152,11 +160,12 @@ class Cahe {
     webletterUrl: string,
     webletterKey: string,
     proxy: string,
+    configEmailFileName: string,
   ) {
     try {
       if (!webletterKey) throw new Error('Webletter token is missing');
 
-      const configEmailPath = join(outputPath, Cahe.#configEmailFileName);
+      const configEmailPath = join(outputPath, configEmailFileName);
       const emailConfig = existsSync(configEmailPath)
         ? JSON.parse(readFileSync(configEmailPath, 'utf-8'))
         : {};
@@ -202,14 +211,14 @@ class Cahe {
 
         return newConfig;
       }
+
+      return null;
     } catch (error) {
-      if (error instanceof Error) {
-        Cahe.#stopWithError(error.message);
-      }
+      return Cahe.stopWithError(error);
     }
   }
 
-  private createProcessLog(archiveSize: number) {
+  private createProcessLog(archiveSize: number): void {
     const htmlInterestMiniFy =
       (this.minifyHtmlLog.cleanedLength / this.htmlOriginalSize) * 100;
 
@@ -224,13 +233,13 @@ class Cahe {
 
     signale.info(`Images: ${this.imagesSum}`);
     signale.info(`Total size: ${(archiveSize / 1e6).toFixed(2)} MB`);
-    if (this.emailConfig)
+    if (this.emailConfig.webletterUrl)
       signale.info(`Webletter: ${this.emailConfig.webletterUrl}`);
     signale.info(`Path: ${this.outputArchiveFilePath}`);
     signale.info('Archive path copied to clipboard.');
   }
 
-  private async createImageDir(archive: Archiver) {
+  private async createImageDir(archive: Archiver): Promise<void> {
     try {
       const tasks = this.imageSrcList.map(async ({ path, gateWidth }) => {
         const imagePath = join(this.dirPath, path);
@@ -307,7 +316,7 @@ class Cahe {
 
       signale.success('Create image dir');
     } catch (error) {
-      Cahe.#stopWithError(error);
+      Cahe.stopWithError(error);
     }
   }
 
@@ -345,7 +354,7 @@ class Cahe {
       );
 
       if (inlineCss) {
-        this.htmlString = inlineCss
+        this.htmlString = inlineCss;
       }
 
       this.htmlString = this.htmlString.replace(ImageUtils.regexDataWidth, '');
@@ -357,13 +366,13 @@ class Cahe {
         this.htmlString = minifiedHtml.result;
         this.minifyHtmlLog = minifiedHtml.log;
       } else {
-        return Cahe.#stopWithError('HTML minification failed.');
+        return Cahe.stopWithError('HTML minification failed.');
       }
 
-      archive.append(this.htmlString, { name: this.#indexFileName });
+      archive.append(this.htmlString, { name: this.htmlFileName });
 
-      output.on('error', (error) => Cahe.#stopWithError(error.message));
-      archive.on('error', (error) => Cahe.#stopWithError(error.message));
+      output.on('error', (error) => Cahe.stopWithError(error.message));
+      archive.on('error', (error) => Cahe.stopWithError(error.message));
 
       this.archiveSize = archive.pointer();
 
@@ -375,35 +384,31 @@ class Cahe {
 
       output.on('finish', async () => {
         if (this.isExtractZipFile) {
-          await Cahe.extractArchive(this.outputArchiveFilePath);
+          await Cahe.extractArchive(
+            this.outputArchiveFilePath,
+            this.extractDirName,
+          );
         }
 
         if (this.isWebVersion) {
-          if (this.imageSrcList) {
-            this.emailConfig = await Cahe.createWebletter(
-              this.outputArchiveFilePath,
-              this.dirPath,
-              this.webletterUrl,
-              this.webletterKey,
-              this.proxy,
-            );
-          } else {
-            this.emailConfig = await Cahe.createWebletter(
-              this.outputArchiveFilePath,
-              this.dirPath,
-              this.webletterUrl,
-              this.webletterKey,
-              this.proxy,
-            );
-          }
+          this.emailConfig = await Cahe.createWebletter(
+            this.outputArchiveFilePath,
+            this.dirPath,
+            this.webletterUrl,
+            this.webletterKey,
+            this.proxy,
+            this.configEmailFileName,
+          );
         }
 
         this.createProcessLog(this.archiveSize);
+
+        process.exit(0);
       });
 
       return output;
     } catch (error) {
-      return Cahe.#stopWithError(error);
+      return Cahe.stopWithError(error);
     }
   }
 }

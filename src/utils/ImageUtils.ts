@@ -8,18 +8,21 @@ import { pngConvertConfig } from './configs.js';
 import env from './envalid.js';
 
 class ImageUtils {
-  static regexImageTag =
+  private static regexImageTag =
     /<img\s[^>]*?src\s*=\s*['\\"]([^'\\"]*?)['\\"][^>]*?>/g;
 
-  static regexHTTP = /^https?:/g;
+  private static regexHTTP = /^https?:/g;
 
   static regexDataWidth = /data-width="\d+"/g;
 
   static #regexNumber = /\d+/g;
 
-  private static stopWithError(errorMessage: string | unknown): void {
-    signale.fatal(errorMessage);
-    process.exit(1);
+  private static handleError(error: unknown | Error): void {
+    if (error instanceof Error) {
+      throw new Error(error.message);
+    }
+
+    throw error;
   }
 
   static getImageList(htmlString: string): { path: string }[] {
@@ -58,7 +61,7 @@ class ImageUtils {
   static async resizeImage(
     imagePath: string,
     width: number,
-  ): Promise<Buffer | null> {
+  ): Promise<Buffer | void> {
     try {
       const resizeImage = await sharp(imagePath)
         .resize({ width })
@@ -69,13 +72,11 @@ class ImageUtils {
 
       return resizeImage;
     } catch (error) {
-      ImageUtils.stopWithError(error);
-
-      return null;
+      return this.handleError(error);
     }
   }
 
-  static async convertImage(imagePath: string): Promise<Buffer | null> {
+  static async convertImage(imagePath: string): Promise<Buffer | void> {
     try {
       const convertedImage = await sharp(imagePath)
         .toFormat('png', pngConvertConfig)
@@ -86,9 +87,7 @@ class ImageUtils {
 
       return convertedImage;
     } catch (error) {
-      ImageUtils.stopWithError(error);
-
-      return null;
+      return this.handleError(error);
     }
   }
 
@@ -96,7 +95,7 @@ class ImageUtils {
     imageBuffer: Buffer,
     name: string,
     quality: number = 100,
-  ): Promise<Buffer | null> {
+  ): Promise<Buffer | void | null> {
     try {
       const { format } = await sharp(imageBuffer).metadata();
 
@@ -127,9 +126,7 @@ class ImageUtils {
 
       return compressedImage;
     } catch (error) {
-      ImageUtils.stopWithError(error);
-
-      return null;
+      return this.handleError(error);
     }
   }
 }
