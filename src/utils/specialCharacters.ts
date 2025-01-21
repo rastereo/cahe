@@ -1,4 +1,4 @@
-const specialCharacters = {
+const specialCharacters: { [key: string]: string } = {
   // Знаки авторского права и регистрации
   '©': '&copy;',
   '®': '&reg;',
