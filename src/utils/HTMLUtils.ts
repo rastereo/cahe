@@ -5,6 +5,7 @@ import juice from 'juice';
 import { comb } from 'email-comb';
 import signale from 'signale';
 import { encodeEmojis } from 'encode-emojis';
+import Bottleneck from 'bottleneck';
 
 // eslint-disable-next-line import/no-unresolved
 import specialCharacters from './specialCharacters.js';
@@ -22,6 +23,10 @@ class HTMLUtils {
 
   private static utfMetaTag =
     '<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />';
+
+  private static limiter = new Bottleneck({
+    minTime: 10e3,
+  });
 
   private static handleError(error: unknown | Error): void {
     if (error instanceof Error) {
@@ -48,30 +53,32 @@ class HTMLUtils {
       const trimUrl = url.trim();
 
       if (url.startsWith('http') && !checkedLinkList.includes(url)) {
-        try {
-          checkedLinkList.push(trimUrl);
+        this.limiter.schedule(async () => {
+          try {
+            checkedLinkList.push(trimUrl);
 
-          // eslint-disable-next-line no-await-in-loop
-          const response = await fetch(trimUrl, { agent: proxyAgent });
-          const { ok, status } = response;
+            // eslint-disable-next-line no-await-in-loop
+            const response = await fetch(trimUrl, { agent: proxyAgent });
+            const { ok, status, statusText } = response;
 
-          const contentType = response.headers.get('content-type');
+            const contentType = response.headers.get('content-type');
 
-          if (
-            !ok ||
-            status !== 200 ||
-            !contentType ||
-            (!contentType.startsWith(this.HTMLContentType) &&
-              !contentType.startsWith(this.pdfContentType) &&
-              !contentType.startsWith(this.streamContentType))
-          ) {
-            throw new Error();
+            if (
+              !ok ||
+              status !== 200 ||
+              !contentType ||
+              (!contentType.startsWith(this.HTMLContentType) &&
+                !contentType.startsWith(this.pdfContentType) &&
+                !contentType.startsWith(this.streamContentType))
+            ) {
+              throw new Error();
+            }
+
+            signale.success(url, statusText, status);
+          } catch {
+            signale.error(`Link unavailable: ${url}`);
           }
-
-          // signale.success(url, statusText, status);
-        } catch {
-          signale.error(`Link unavailable: ${url}`);
-        }
+        });
       }
 
       result = result.replace(url, trimUrl);

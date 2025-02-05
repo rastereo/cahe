@@ -195,7 +195,9 @@ class Cahe {
       });
 
       if (!res.ok) {
-        throw new Error('Webletter response was not ok');
+        const errorMessage = await res.text();
+
+        throw new Error(`Webletter response was not ok: ${res.status} ${errorMessage}`);
       }
 
       const { data } = (await res.json()) as WebletterData;
