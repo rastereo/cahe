@@ -1,16 +1,18 @@
-import fetch from 'node-fetch';
+/* eslint-disable no-restricted-syntax */
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import juice from 'juice';
 // eslint-disable-next-line import/no-unresolved
 import { comb } from 'email-comb';
 import signale from 'signale';
 import { encodeEmojis } from 'encode-emojis';
-import Bottleneck from 'bottleneck';
+import axios from 'axios';
 
 // eslint-disable-next-line import/no-unresolved
 import specialCharacters from './specialCharacters.js';
 // eslint-disable-next-line import/no-unresolved
 import { htmlCombConfig, juiceConfig } from './configs.js';
+// eslint-disable-next-line import/no-unresolved
+import env from './envalid.js';
 
 class HTMLUtils {
   private static regexLinkHref = /href="([^"]*)"/g;
@@ -24,10 +26,6 @@ class HTMLUtils {
   private static utfMetaTag =
     '<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />';
 
-  private static limiter = new Bottleneck({
-    minTime: 10e3,
-  });
-
   private static handleError(error: unknown | Error): void {
     if (error instanceof Error) {
       throw new Error(error.message);
@@ -40,7 +38,7 @@ class HTMLUtils {
     htmlString: string,
     proxy: string,
   ): Promise<string> {
-    const proxyAgent = proxy ? new HttpsProxyAgent(proxy) : undefined;
+    const httpsAgent = proxy ? new HttpsProxyAgent(proxy) : null;
 
     const matches = Array.from(htmlString.matchAll(this.regexLinkHref));
 
@@ -48,43 +46,44 @@ class HTMLUtils {
 
     const checkedLinkList: string[] = [];
 
-    const checkedLInkList = matches.map(async (href) => {
+    for (const href of matches) {
       const url = href[1];
       const trimUrl = url.trim();
 
-      if (url.startsWith('http') && !checkedLinkList.includes(url)) {
-        this.limiter.schedule(async () => {
-          try {
-            checkedLinkList.push(trimUrl);
+      if (url.startsWith('http') && !checkedLinkList.includes(trimUrl)) {
+        checkedLinkList.push(trimUrl);
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          const response = await axios.get(trimUrl, {
+            httpsAgent,
+            timeout: env.AXIOS_REQUEST_TIMEOUT,
+          });
+          const { status, statusText } = response;
 
-            // eslint-disable-next-line no-await-in-loop
-            const response = await fetch(trimUrl, { agent: proxyAgent });
-            const { ok, status, statusText } = response;
+          const contentType = response.headers['content-type'];
 
-            const contentType = response.headers.get('content-type');
-
-            if (
-              !ok ||
-              status !== 200 ||
-              !contentType ||
-              (!contentType.startsWith(this.HTMLContentType) &&
-                !contentType.startsWith(this.pdfContentType) &&
-                !contentType.startsWith(this.streamContentType))
-            ) {
-              throw new Error();
-            }
-
-            signale.success(url, statusText, status);
-          } catch {
-            signale.error(`Link unavailable: ${url}`);
+          if (
+            status !== 200 ||
+            !contentType ||
+            (!contentType.startsWith(this.HTMLContentType) &&
+              !contentType.startsWith(this.pdfContentType) &&
+              !contentType.startsWith(this.streamContentType))
+          ) {
+            throw new Error(`Validation failed: ${status} ${statusText} ${contentType}`);
           }
-        });
+
+          // signale.success(url, statusText, status);
+        } catch (error) {
+          if (axios.isAxiosError(error) && error.response) {
+            signale.error(`Link unavailable: ${url} ${error.message}`);
+          } else if (error instanceof Error) {
+            signale.error(`Link unavailable: ${url} ${error.message}`);
+          }
+        }
       }
 
       result = result.replace(url, trimUrl);
-    });
-
-    await Promise.all(checkedLInkList);
+    }
 
     return result;
   }

@@ -19,6 +19,7 @@ const env = cleanEnv(process.env, {
   IMAGE_DIR_NAME: str({ default: 'images' }),
   EXTRACT_DIR_NAME: str({ default: 'build' }),
   CONFIG_EMAIL_NAME: str({ default: 'config.json' }),
+  AXIOS_REQUEST_TIMEOUT: num({ default: 10e3 }),
 });
 
 export default env;

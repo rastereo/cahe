@@ -6,16 +6,14 @@ import {
   writeFileSync,
 } from 'fs';
 import { basename, dirname, extname, join, resolve } from 'path';
-import fetch from 'node-fetch';
 import archiver, { Archiver } from 'archiver';
 import clipboard from 'clipboardy';
 import signale from 'signale';
 import sharp from 'sharp';
 import extract from 'extract-zip';
 import { HttpsProxyAgent } from 'https-proxy-agent';
+import axios from 'axios';
 
-// eslint-disable-next-line import/no-unresolved
-import { WebletterData } from './types.js';
 // eslint-disable-next-line import/no-unresolved
 import ImageUtils from './utils/ImageUtils.js';
 // eslint-disable-next-line import/no-unresolved
@@ -171,7 +169,8 @@ class Cahe {
         : {};
 
       const { id } = emailConfig;
-      const proxyAgent = proxy ? new HttpsProxyAgent(proxy) : undefined;
+      
+      const httpsAgent = proxy ? new HttpsProxyAgent(proxy) : undefined;
 
       const formData = new FormData();
 
@@ -185,22 +184,14 @@ class Cahe {
         ? `${webletterUrl}/api/webletters/${id}`
         : `${webletterUrl}/api/webletters/upload`;
 
-      const res = await fetch(url, {
+      const { data } = await axios(url, {
         method: id ? 'PUT' : 'POST',
-        agent: proxyAgent,
+        httpsAgent,
         headers: {
           Authorization: webletterKey,
         },
-        body: formData,
+        data: formData,
       });
-
-      if (!res.ok) {
-        const errorMessage = await res.text();
-
-        throw new Error(`Webletter response was not ok: ${res.status} ${errorMessage}`);
-      }
-
-      const { data } = (await res.json()) as WebletterData;
 
       if (data) {
         const newConfig = Object.assign(data, emailConfig);
@@ -216,7 +207,15 @@ class Cahe {
 
       return null;
     } catch (error) {
-      return Cahe.stopWithError(error);
+      if (axios.isAxiosError(error) && error.response) {
+        return Cahe.stopWithError(error.message);
+      }
+
+      if (error instanceof Error) {
+        return Cahe.stopWithError(error.message);
+      }
+
+      return Cahe.stopWithError('An unknown error occurred');
     }
   }
 
