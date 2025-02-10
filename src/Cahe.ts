@@ -169,7 +169,7 @@ class Cahe {
         : {};
 
       const { id } = emailConfig;
-      
+
       const httpsAgent = proxy ? new HttpsProxyAgent(proxy) : undefined;
 
       const formData = new FormData();
@@ -194,7 +194,7 @@ class Cahe {
       });
 
       if (data) {
-        const newConfig = Object.assign(data, emailConfig);
+        const newConfig = Object.assign(data.data, emailConfig);
 
         newConfig.webletterUrl = `${webletterUrl}/${newConfig.id}`;
 
