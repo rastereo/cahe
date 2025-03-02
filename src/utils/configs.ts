@@ -1,6 +1,6 @@
 export const juiceConfig = {
   preserveImportant: true,
-  resolveCSSVariables: true,
+  removeStyleTags: false,
 };
 
 export const htmlCombConfig = {

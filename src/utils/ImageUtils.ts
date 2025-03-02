@@ -11,6 +11,8 @@ class ImageUtils {
   private static regexImageTag =
     /<img\s[^>]*?src\s*=\s*['\\"]([^'\\"]*?)['\\"][^>]*?>/g;
 
+  static regexBackgroundImage = /url\(['"]?([^'")]+)['"]?\)/g;
+
   private static regexHTTP = /^https?:/g;
 
   static regexDataWidth = /data-width="\d+"/g;
@@ -26,7 +28,10 @@ class ImageUtils {
   }
 
   static getImageList(htmlString: string): { path: string }[] {
-    const matches = Array.from(htmlString.matchAll(this.regexImageTag));
+    const matches = [
+      ...Array.from(htmlString.matchAll(this.regexImageTag)),
+      ...Array.from(htmlString.matchAll(this.regexBackgroundImage)),
+    ];
     const list: { path: string }[] = [];
 
     matches.forEach((img) => {
